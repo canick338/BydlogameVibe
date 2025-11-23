@@ -144,8 +144,8 @@ _Покупай оружие и улучшения!_
 
 ```bash
 # Если ты не лох
-git clone https://github.com/pacan/bydlogame.git
-cd bydlogame
+git clone https://github.com/canick338/BydlogameVibe.git
+cd BydlogameVibe
 ```
 
 </details>
@@ -549,9 +549,9 @@ bydlogame/
 
 ### 🎮 СТАТИСТИКА ПРОЕКТА
 
-![GitHub stars](https://img.shields.io/github/stars/yourusername/bydlogame?style=for-the-badge&logo=github&logoColor=white)
-![GitHub forks](https://img.shields.io/github/forks/yourusername/bydlogame?style=for-the-badge&logo=github&logoColor=white)
-![GitHub issues](https://img.shields.io/github/issues/yourusername/bydlogame?style=for-the-badge&logo=github&logoColor=white)
+![GitHub stars](https://img.shields.io/github/stars/canick338/BydlogameVibe?style=for-the-badge&logo=github&logoColor=white)
+![GitHub forks](https://img.shields.io/github/forks/canick338/BydlogameVibe?style=for-the-badge&logo=github&logoColor=white)
+![GitHub issues](https://img.shields.io/github/issues/canick338/BydlogameVibe?style=for-the-badge&logo=github&logoColor=white)
 
 </div>
 
