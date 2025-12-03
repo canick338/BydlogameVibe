@@ -4,6 +4,8 @@
 import math
 import pygame
 from game.weapon import Weapon
+from game.knife import Knife
+from game.config import RED
 
 
 class Player:
@@ -28,8 +30,14 @@ class Player:
             Weapon("ПУЛЕМЁТ", 20, 15, 100, (200, 150, 100), 0.2),
             Weapon("ГРАНАТОМЁТ", 80, 0.5, 5, (255, 100, 0), 0.1),
             Weapon("РЕВОЛЬВЕР", 35, 2, 18, (200, 200, 200), 0.03),
-            Weapon("АВТОМАТ-2", 18, 12, 80, (120, 180, 220), 0.12)
+            Weapon("АВТОМАТ-2", 18, 12, 80, (120, 180, 220), 0.12),
+            None  # Слот для ножа (будет объект Knife)
         ]
+        
+        # Нож
+        self.knife = Knife()
+        self.weapons[8] = self.knife  # Нож как 9-е оружие (индекс 8)
+        self.knife_attack_animation = 0  # Таймер анимации замаха ножа
 
         self.current_weapon = 0
         self.kills = 0
@@ -80,7 +88,20 @@ class Player:
         self.direction = math.atan2(target_y - self.y, target_x - self.x)
 
     def shoot(self):
-        return self.weapons[self.current_weapon].shoot(self.direction, self.x, self.y)
+        weapon = self.weapons[self.current_weapon]
+        if isinstance(weapon, Knife):
+            # Нож не стреляет, атака обрабатывается отдельно
+            return None
+        return weapon.shoot(self.direction, self.x, self.y)
+    
+    def attack_with_knife(self):
+        """Атака ножом - возвращает информацию об атаке"""
+        if isinstance(self.weapons[self.current_weapon], Knife):
+            attack_info = self.knife.attack(self.direction, self.x, self.y)
+            if attack_info:
+                self.knife_attack_animation = 30  # Анимация замаха
+            return attack_info
+        return None
 
     def switch_weapon(self, direction):
         self.current_weapon = (self.current_weapon + direction) % len(self.weapons)
@@ -143,13 +164,88 @@ class Player:
 
         # Оружие с эффектом
         weapon = self.weapons[self.current_weapon]
-        weapon_x = x + math.cos(self.direction) * 35
-        weapon_y = y + math.sin(self.direction) * 35
         
-        # Металлический эффект оружия
-        weapon_rect = pygame.Rect(weapon_x - 8, weapon_y - 4, 25, 8)
-        pygame.draw.rect(screen, tuple(int(c * 0.7) for c in weapon.color), weapon_rect)
-        pygame.draw.rect(screen, weapon.color, (weapon_x - 7, weapon_y - 3, 23, 6))
-        pygame.draw.rect(screen, tuple(min(255, c + 50) for c in weapon.color), (weapon_x - 6, weapon_y - 2, 21, 2))
-        pygame.draw.rect(screen, (50, 50, 50), weapon_rect, 1)
+        # Если это нож - особая отрисовка
+        if isinstance(weapon, Knife):
+            self._draw_knife(screen, x, y)
+        else:
+            weapon_x = x + math.cos(self.direction) * 35
+            weapon_y = y + math.sin(self.direction) * 35
+            
+            # Металлический эффект оружия
+            weapon_rect = pygame.Rect(weapon_x - 8, weapon_y - 4, 25, 8)
+            pygame.draw.rect(screen, tuple(int(c * 0.7) for c in weapon.color), weapon_rect)
+            pygame.draw.rect(screen, weapon.color, (weapon_x - 7, weapon_y - 3, 23, 6))
+            pygame.draw.rect(screen, tuple(min(255, c + 50) for c in weapon.color), (weapon_x - 6, weapon_y - 2, 21, 2))
+            pygame.draw.rect(screen, (50, 50, 50), weapon_rect, 1)
+    
+    def _draw_knife(self, screen, x, y):
+        """Отрисовка ножа с анимацией"""
+        from game.knife import Knife
+        
+        # Базовая позиция ножа
+        base_angle = self.direction
+        
+        # Анимация замаха при атаке
+        if self.knife_attack_animation > 0:
+            swing_angle = math.sin((30 - self.knife_attack_animation) * 0.3) * math.pi / 3
+            base_angle += swing_angle
+            self.knife_attack_animation -= 1
+        
+        # Длина лезвия
+        blade_length = 40
+        handle_length = 15
+        
+        # Позиция рукоятки
+        handle_x = x + math.cos(self.direction) * 20
+        handle_y = y + math.sin(self.direction) * 20
+        
+        # Позиция лезвия
+        blade_tip_x = handle_x + math.cos(base_angle) * blade_length
+        blade_tip_y = handle_y + math.sin(base_angle) * blade_length
+        
+        # Рисуем рукоятку (тёмная)
+        handle_end_x = handle_x - math.cos(base_angle) * handle_length
+        handle_end_y = handle_y - math.sin(base_angle) * handle_length
+        pygame.draw.line(screen, (60, 40, 20), (int(handle_x), int(handle_y)), 
+                        (int(handle_end_x), int(handle_end_y)), 6)
+        
+        # Рисуем лезвие (металлическое с градиентом)
+        for i in range(blade_length):
+            alpha = 1.0 - (i / blade_length) * 0.3
+            color = tuple(int(c * alpha) for c in (200, 220, 240))
+            start_x = handle_x + math.cos(base_angle) * i
+            start_y = handle_y + math.sin(base_angle) * i
+            end_x = handle_x + math.cos(base_angle) * (i + 1)
+            end_y = handle_y + math.sin(base_angle) * (i + 1)
+            
+            width = int(4 - (i / blade_length) * 2)
+            if width > 0:
+                pygame.draw.line(screen, color, 
+                               (int(start_x), int(start_y)), 
+                               (int(end_x), int(end_y)), width)
+        
+        # Острие ножа
+        tip_x1 = blade_tip_x + math.cos(base_angle + math.pi / 2) * 3
+        tip_y1 = blade_tip_y + math.sin(base_angle + math.pi / 2) * 3
+        tip_x2 = blade_tip_x + math.cos(base_angle - math.pi / 2) * 3
+        tip_y2 = blade_tip_y + math.sin(base_angle - math.pi / 2) * 3
+        
+        pygame.draw.polygon(screen, (255, 255, 255), [
+            (int(blade_tip_x), int(blade_tip_y)),
+            (int(tip_x1), int(tip_y1)),
+            (int(handle_x + math.cos(base_angle) * (blade_length - 5)), 
+             int(handle_y + math.sin(base_angle) * (blade_length - 5))),
+            (int(tip_x2), int(tip_y2))
+        ])
+        
+        # Свечение ножа при атаке
+        if self.knife_attack_animation > 0:
+            glow_surf = pygame.Surface((blade_length * 2 + 20, blade_length * 2 + 20), pygame.SRCALPHA)
+            for radius in range(15, 0, -2):
+                alpha = int(100 * (1 - radius / 15))
+                pygame.draw.circle(glow_surf, (*RED[:3], alpha), 
+                                 (blade_length + 10, blade_length + 10), radius)
+            screen.blit(glow_surf, (int(blade_tip_x) - blade_length - 10, 
+                                   int(blade_tip_y) - blade_length - 10))
 

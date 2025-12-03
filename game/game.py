@@ -33,6 +33,8 @@ from game.ui.kill_feed import KillFeedEntry
 from game.managers.wave_manager import WaveManager
 from game.managers.screen_shake import ScreenShake
 from game.managers.gameplay_manager import GameplayManager
+from game.knife import Knife
+from game.body_part import BodyPart
 
 
 class Game:
@@ -47,6 +49,7 @@ class Game:
         self.bullets = []
         self.particles = []
         self.damage_numbers = []
+        self.body_parts = []  # Части тел врагов для эффекта разрезания
         self.missions = []
         self.current_mission_index = 0
         self.cutscene = None
@@ -199,6 +202,75 @@ class Game:
         """Спавн врагов (используется WaveManager)"""
         self.wave_manager.spawn_enemies(count, self.enemies, self.player, self.city)
     
+    def _create_body_parts(self, enemy):
+        """Создание частей тела врага при убийстве ножом"""
+        # Создаем разные части тела
+        parts = [
+            ("head", 1),
+            ("torso", 3),
+            ("limb", 4)
+        ]
+        
+        for part_type, count in parts:
+            for _ in range(count):
+                offset_x = random.uniform(-20, 20)
+                offset_y = random.uniform(-20, 20)
+                self.body_parts.append(BodyPart(
+                    enemy.x + offset_x,
+                    enemy.y + offset_y,
+                    part_type,
+                    enemy.color
+                ))
+    
+    def _handle_knife_kill(self, enemy, damage):
+        """Обработка убийства врага ножом"""
+        self.player.kills += 1
+        
+        # Лента убийств
+        self.kill_feed.append(KillFeedEntry(enemy.type + " (НОЖ)"))
+        if len(self.kill_feed) > 5:
+            self.kill_feed.pop(0)
+        
+        # Комбо система
+        self.player.combo += 1
+        self.player.combo_timer = 180
+        combo_bonus = 1 + (self.player.combo // 5) * 0.1
+        
+        bounty = int(enemy.bounty * combo_bonus * 1.5)  # Бонус за нож
+        self.player.money += bounty
+        score_change = int(bounty // 2 * combo_bonus)
+        self.score += score_change
+        self.player.total_damage_dealt += damage
+        
+        # Опыт (бонус за ближний бой)
+        exp_gain = int((10 + enemy.level * 5) * 1.5)
+        if enemy.type == "босс":
+            exp_gain *= 3
+        self.player.experience += exp_gain
+        
+        # Повышение уровня
+        while self.player.experience >= self.player.experience_to_next:
+            self.player.experience -= self.player.experience_to_next
+            self.player.level += 1
+            self.player.skill_points += 1
+            self.player.experience_to_next = int(self.player.experience_to_next * 1.5)
+            self.player.health = self.player.max_health
+            
+            for _ in range(50):
+                angle = random.uniform(0, 2 * math.pi)
+                speed = random.uniform(2, 8)
+                self.particles.append(Particle(
+                    self.player.x, self.player.y, (0, 255, 255),
+                    math.cos(angle) * speed,
+                    math.sin(angle) * speed, 60
+                ))
+        
+        if enemy.type == "босс":
+            self.player.bosses_killed += 1
+        
+        # Обновление миссий
+        self._handle_enemy_kill_for_mission(enemy, bounty)
+    
     def _handle_enemy_kill_for_mission(self, enemy, bounty):
         """Callback для обработки убийства врага для миссий"""
         if self.current_mission_index < len(self.missions):
@@ -337,18 +409,25 @@ class Game:
                             60
                         ))
 
-                elif event.key in [pygame.K_1, pygame.K_2, pygame.K_3, pygame.K_4, pygame.K_5, pygame.K_6, pygame.K_7, pygame.K_8] and self.state == GameState.PLAYING:
+                elif event.key in [pygame.K_1, pygame.K_2, pygame.K_3, pygame.K_4, pygame.K_5, pygame.K_6, pygame.K_7, pygame.K_8, pygame.K_9] and self.state == GameState.PLAYING:
                     weapon_index = event.key - pygame.K_1
-                    if weapon_index < len(self.player.weapons):
+                    if weapon_index < len(self.player.weapons) and self.player.weapons[weapon_index] is not None:
                         self.player.current_weapon = weapon_index
+                        if isinstance(self.player.weapons[weapon_index], Knife):
+                            self.player.auto_fire = False  # Нож не стреляет автоматически
 
             elif event.type == pygame.MOUSEBUTTONDOWN:
                 if event.button == 1:  # ЛКМ
                     if self.state == GameState.PLAYING:
-                        bullet = self.player.shoot()
-                        if bullet:
-                            self.bullets.append(bullet)
-                        self.player.auto_fire = True
+                        # Проверяем, нож ли это
+                        if isinstance(self.player.weapons[self.player.current_weapon], Knife):
+                            # Атака ножом обрабатывается в update()
+                            pass
+                        else:
+                            bullet = self.player.shoot()
+                            if bullet:
+                                self.bullets.append(bullet)
+                            self.player.auto_fire = True
                     elif self.state == GameState.MAIN_MENU:
                         # Обработка кликов по кнопкам главного меню
                         mouse_pos = pygame.mouse.get_pos()
@@ -411,11 +490,56 @@ class Game:
             # Проверка перехода между локациями
             self.city.check_location_transition(self.player.x, self.player.y)
 
-            # Автоматическая стрельба
-            if self.player.auto_fire:
+            # Автоматическая стрельба (только для огнестрельного оружия)
+            if self.player.auto_fire and not isinstance(self.player.weapons[self.player.current_weapon], Knife):
                 bullet = self.player.shoot()
                 if bullet:
                     self.bullets.append(bullet)
+            
+            # Атака ножом
+            if isinstance(self.player.weapons[self.player.current_weapon], Knife):
+                keys = pygame.key.get_pressed()
+                mouse_buttons = pygame.mouse.get_pressed()
+                if mouse_buttons[0]:  # ЛКМ зажата
+                    attack_info = self.player.attack_with_knife()
+                    if attack_info:
+                        # Проверяем попадание по врагам
+                        for enemy in self.enemies[:]:
+                            dist = math.sqrt((enemy.x - attack_info["x"]) ** 2 + (enemy.y - attack_info["y"]) ** 2)
+                            if dist < attack_info["range"]:
+                                # Проверяем угол атаки (враг должен быть перед игроком)
+                                angle_to_enemy = math.atan2(enemy.y - attack_info["y"], enemy.x - attack_info["x"])
+                                angle_diff = abs(angle_to_enemy - attack_info["direction"])
+                                if angle_diff > math.pi:
+                                    angle_diff = 2 * math.pi - angle_diff
+                                
+                                if angle_diff < math.pi / 2:  # Враг в зоне атаки
+                                    damage = attack_info["damage"]
+                                    
+                                    # Критический удар при атаке сзади
+                                    is_critical = angle_diff > math.pi / 3
+                                    if is_critical:
+                                        damage = int(damage * 1.5)
+                                    
+                                    self.damage_numbers.append(DamageNumber(enemy.x, enemy.y - enemy.size, damage, is_critical))
+                                    self.screen_shake.shake(8, 15)
+                                    
+                                    # Эффект резания
+                                    for _ in range(30):
+                                        angle = random.uniform(0, 2 * math.pi)
+                                        speed = random.uniform(2, 8)
+                                        self.particles.append(BloodParticle(
+                                            enemy.x, enemy.y,
+                                            math.cos(angle) * speed,
+                                            math.sin(angle) * speed
+                                        ))
+                                    
+                                    if enemy.take_damage(damage):
+                                        # УБИЙСТВО НОЖОМ - РЕЗАЕМ НА ЧАСТИ!
+                                        self._create_body_parts(enemy)
+                                        self._handle_knife_kill(enemy, damage)
+                                        self.enemies.remove(enemy)
+                                    break  # Нож бьет только одного врага за раз
 
             # Спавн врагов (используется WaveManager)
             self.wave_manager.update(self.enemies, self.player, self.city)
@@ -580,6 +704,11 @@ class Game:
                 if not kill_entry.update():
                     self.kill_feed.remove(kill_entry)
             
+            # Обновление частей тел
+            for body_part in self.body_parts[:]:
+                if not body_part.update():
+                    self.body_parts.remove(body_part)
+            
             # Регенерация здоровья
             self.player.regen_timer += 1
             if current_time - self.player.last_damage_time > 5000 and self.player.health < self.player.max_health:
@@ -735,13 +864,19 @@ class Game:
 
         # Оружие
         weapon = self.player.weapons[self.player.current_weapon]
-        ammo_text = small_font.render(f"{weapon.name}: {weapon.ammo}/{weapon.max_ammo}", True, weapon.color)
+        if isinstance(weapon, Knife):
+            ammo_text = small_font.render(f"{weapon.name}: БЛИЖНИЙ БОЙ", True, (255, 100, 100))
+        else:
+            ammo_text = small_font.render(f"{weapon.name}: {weapon.ammo}/{weapon.max_ammo}", True, weapon.color)
         self.screen.blit(ammo_text, (10, 40))
         
         # Индикатор выбранного оружия
         for i, w in enumerate(self.player.weapons):
+            if w is None:
+                continue
             color = GOLD if i == self.player.current_weapon else LIGHT_GREY
-            weapon_indicator = small_font.render(f"{i+1}: {w.name[:3]}", True, color)
+            weapon_name = w.name[:3] if hasattr(w, 'name') else "НОЖ"
+            weapon_indicator = small_font.render(f"{i+1}: {weapon_name}", True, color)
             self.screen.blit(weapon_indicator, (10 + i * 80, 115))
 
         # Ресурсы
@@ -888,8 +1023,8 @@ class Game:
 
         controls = [
             "W, A, S, D / СТРЕЛКИ - ПЕРЕДВИЖЕНИЕ",
-            "ЛЕВАЯ КНОПКА МЫШИ - ОГОНЬ (ЗАЖАТЬ ДЛЯ АВТО)",
-            "1-8 - ВЫБОР ОРУЖИЯ",
+            "ЛЕВАЯ КНОПКА МЫШИ - ОГОНЬ / АТАКА НОЖОМ",
+            "1-9 - ВЫБОР ОРУЖИЯ (9 - НОЖ)",
             "U - МЕНЮ НАВЫКОВ",
             "R - ПЕРЕЗАРЯДКА",
             "ESC - ПАУЗА / МЕНЮ",
@@ -951,6 +1086,15 @@ class Game:
             dmg_num.x, dmg_num.y = dmg_screen_x, dmg_screen_y
             dmg_num.draw(game_surface)
             dmg_num.x, dmg_num.y = old_dx, old_dy
+        
+        # Отрисовка частей тел (с учётом камеры)
+        for body_part in self.body_parts:
+            body_screen_x = body_part.x - self.city.camera_x
+            body_screen_y = body_part.y - self.city.camera_y
+            old_bpx, old_bpy = body_part.x, body_part.y
+            body_part.x, body_part.y = body_screen_x, body_screen_y
+            body_part.draw(game_surface)
+            body_part.x, body_part.y = old_bpx, old_bpy
         
         # Отрисовка игрока (с учётом камеры - как в старом коде)
         player_screen_x = self.player.x - self.city.camera_x
@@ -1140,6 +1284,7 @@ class Game:
         self.bullets = []
         self.particles = []
         self.damage_numbers = []
+        self.body_parts = []  # Очищаем части тел при старте новой игры
         self.kill_feed = []
         self.score = 0
         self.wave_manager.wave = 1

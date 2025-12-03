@@ -9,7 +9,7 @@ pygame.font.init()
 pygame.mixer.init()
 
 # Размеры экрана
-SCREEN_WIDTH, SCREEN_HEIGHT = 1024, 768
+SCREEN_WIDTH, SCREEN_HEIGHT = 1920, 1080
 FPS = 60
 
 # Цвета
