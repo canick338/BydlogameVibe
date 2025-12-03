@@ -17,6 +17,9 @@ from scenes.hotline_cutscene import HotlineCutscene
 from scenes.cutscene import Cutscene
 from game.ui.damage_number import DamageNumber
 from game.ui.kill_feed import KillFeedEntry
+from game.managers.wave_manager import WaveManager
+from game.managers.screen_shake import ScreenShake
+from game.managers.gameplay_manager import GameplayManager
 
 
 class Game:
@@ -36,8 +39,6 @@ class Game:
         self.cutscene = None
         self.hotline_cutscene = None
         self.score = 0
-        self.wave = 1
-        self.enemy_spawn_timer = 0
         self.mission_start_time = 0
         self.shop = Shop()
         self.shop_message = ""
@@ -45,10 +46,15 @@ class Game:
         self.achievements = []
         self.current_achievement_notification = None
         self.achievement_notification_timer = 0
-        self.kill_feed = []
-        self.damage_numbers = []
-        self.screen_shake = 0
-        self.screen_shake_intensity = 0
+        
+        # Менеджеры
+        self.wave_manager = WaveManager()
+        self.screen_shake = ScreenShake()
+        self.gameplay_manager = GameplayManager(
+            self.player, self.city, self.enemies, self.bullets,
+            self.particles, self.damage_numbers, self.kill_feed, self.screen_shake,
+            mission_callback=self._handle_enemy_kill_for_mission
+        )
 
         self.init_missions()
         self.init_achievements()
@@ -70,7 +76,7 @@ class Game:
             Achievement("ЛЕГЕНДА", "Пройди все миссии", 
                        lambda p, g: p.completed_missions >= len(self.missions)),
             Achievement("ВОЛНА УЖАСА", "Достигни 10 волны", 
-                       lambda p, g: g.wave >= 10),
+                       lambda p, g: g.wave_manager.wave >= 10),
         ]
 
     def init_missions(self):
@@ -175,33 +181,25 @@ class Game:
         self.state = GameState.CUTSCENE
 
     def spawn_enemies(self, count):
-        for _ in range(count):
-            # Спавн врагов вокруг игрока в открытом мире
-            angle = random.uniform(0, 2 * math.pi)
-            distance = random.uniform(400, 600)
-            x = self.player.x + math.cos(angle) * distance
-            y = self.player.y + math.sin(angle) * distance
-            
-            # Ограничиваем границами мира
-            x = max(50, min(self.city.world_size - 50, x))
-            y = max(50, min(self.city.world_size - 50, y))
-
-            # Вероятность появления специальных врагов увеличивается с волной
-            boss_chance = min(0.1 + self.wave * 0.05, 0.4)
-            sniper_chance = min(0.05 + self.wave * 0.03, 0.25) if self.wave >= 2 else 0
-            tank_chance = min(0.03 + self.wave * 0.02, 0.2) if self.wave >= 4 else 0
-            
-            rand = random.random()
-            if rand < boss_chance and self.wave >= 3:
-                enemy_type = "босс"
-            elif rand < boss_chance + sniper_chance and self.wave >= 2:
-                enemy_type = "снайпер"
-            elif rand < boss_chance + sniper_chance + tank_chance and self.wave >= 4:
-                enemy_type = "танк"
-            else:
-                enemy_type = random.choices(["мент", "быдло", "крыса"],
-                                            weights=[0.4, 0.35, 0.25])[0]
-            self.enemies.append(Enemy(x, y, enemy_type, self.wave))
+        """Спавн врагов (используется WaveManager)"""
+        self.wave_manager.spawn_enemies(count, self.enemies, self.player, self.city)
+    
+    def _handle_enemy_kill_for_mission(self, enemy, bounty):
+        """Callback для обработки убийства врага для миссий"""
+        if self.current_mission_index < len(self.missions):
+            current_mission = self.missions[self.current_mission_index]
+            if current_mission.type == "kill":
+                if current_mission.title == "РАЗБОРКА С МЕНТАМИ" and enemy.type == "мент":
+                    self.player.mission_kills += 1
+                    if current_mission.update():
+                        self.complete_mission()
+                elif current_mission.title == "УБИТЬ БОССОВ" and enemy.type == "босс":
+                    self.player.mission_kills += 1
+                    if current_mission.update():
+                        self.complete_mission()
+            elif current_mission.type == "collect":
+                if current_mission.update(bounty):
+                    self.complete_mission()
 
     def handle_events(self):
         for event in pygame.event.get():
@@ -366,37 +364,9 @@ class Game:
         if self.state == GameState.PLAYING:
             dt = self.clock.get_time() / 1000.0
 
-            # Обновление направления игрока по курсору (с учетом камеры)
-            mouse_x, mouse_y = pygame.mouse.get_pos()
-            # Преобразуем координаты экрана в координаты мира
-            world_mouse_x = mouse_x + self.city.camera_x
-            world_mouse_y = mouse_y + self.city.camera_y
-            self.player.update_direction(world_mouse_x, world_mouse_y)
-
-            # Управление движением
+            # Обновление движения игрока (используется GameplayManager)
             keys = pygame.key.get_pressed()
-            dx, dy = 0, 0
-
-            if keys[pygame.K_w] or keys[pygame.K_UP]:
-                dy -= 1
-            if keys[pygame.K_s] or keys[pygame.K_DOWN]:
-                dy += 1
-            if keys[pygame.K_a] or keys[pygame.K_LEFT]:
-                dx -= 1
-            if keys[pygame.K_d] or keys[pygame.K_RIGHT]:
-                dx += 1
-
-            if dx != 0 and dy != 0:
-                dx *= 0.7071
-                dy *= 0.7071
-
-            self.player.move(dx, dy, self.city.world_size)
-            
-            # Обновление камеры
-            self.city.update_camera(self.player.x, self.player.y)
-            
-            # Проверка перехода между локациями
-            self.city.check_location_transition(self.player.x, self.player.y)
+            self.gameplay_manager.update_player_movement(keys, dt)
 
             # Автоматическая стрельба
             if self.player.auto_fire:
@@ -404,221 +374,33 @@ class Game:
                 if bullet:
                     self.bullets.append(bullet)
 
-            # Спавн врагов
-            self.enemy_spawn_timer += 1
+            # Спавн врагов (используется WaveManager)
+            self.wave_manager.update(self.enemies, self.player, self.city)
+
+            # Обновление миссии (survive)
             current_mission = self.missions[self.current_mission_index]
-            max_enemies = 8 + self.wave
-
-            # Увеличиваем частоту спавна с волной
-            spawn_rate = max(60, 90 - self.wave * 5)
-            if self.enemy_spawn_timer >= spawn_rate and len(self.enemies) < max_enemies:
-                spawn_count = 1 if self.wave < 3 else min(2, max_enemies - len(self.enemies))
-                self.spawn_enemies(spawn_count)
-                self.enemy_spawn_timer = 0
-
-            # Обновление миссии
             if current_mission.type == "survive":
                 elapsed = (pygame.time.get_ticks() - self.mission_start_time) / 1000.0
                 if current_mission.update_timer(elapsed):
                     self.complete_mission()
 
-            # Обновление пуль
-            for bullet in self.bullets[:]:
-                if not bullet.update(self.city.world_size):
-                    self.bullets.remove(bullet)
-                else:
-                    # Проверка попадания (используем мировые координаты)
-                    hit_enemies = []
-                    for enemy in self.enemies[:]:
-                        # Используем увеличенный хитбокс для лучшего попадания
-                        hitbox_size = max(enemy.size, 30)  # Минимальный размер хитбокса 30
-                        dist = math.sqrt((bullet.x - enemy.x) ** 2 + (bullet.y - enemy.y) ** 2)
-                        if dist < hitbox_size:
-                            hit_enemies.append((enemy, dist))
-                    
-                    # Обработка взрывных пуль
-                    if bullet.type == "explosive" and bullet.lifetime <= 1:
-                        # Взрыв
-                        explosion_radius = bullet.explosion_radius
-                        for enemy in self.enemies[:]:
-                            dist = math.sqrt((bullet.x - enemy.x) ** 2 + (bullet.y - enemy.y) ** 2)
-                            if dist < explosion_radius:
-                                hit_enemies.append((enemy, dist))
-                        
-                        # Эффект взрыва
-                        for _ in range(40):
-                            angle = random.uniform(0, 2 * math.pi)
-                            speed = random.uniform(3, 10)
-                            self.particles.append(Particle(
-                                bullet.x, bullet.y,
-                                (255, 150, 0),
-                                math.cos(angle) * speed,
-                                math.sin(angle) * speed,
-                                50
-                            ))
-                    
-                    # Обработка попаданий
-                    for enemy, dist in hit_enemies:
-                        # Урон уменьшается с расстоянием для взрывных пуль
-                        damage = bullet.damage
-                        is_critical = random.random() < 0.1  # 10% шанс крита
-                        if is_critical:
-                            damage = int(damage * 1.5)
-                        
-                        if bullet.type == "explosive":
-                            damage = int(damage * (1 - dist / bullet.explosion_radius * 0.5))
-                        
-                        # Отображение урона (в координатах мира)
-                        self.damage_numbers.append(DamageNumber(enemy.x, enemy.y - enemy.size, damage, is_critical))
-                        
-                        # Тряска экрана при большом уроне
-                        if damage > 50:
-                            self.screen_shake = 10
-                            self.screen_shake_intensity = 5
-                        
-                        if enemy.take_damage(damage):
-                                # Эффект частиц при убийстве
-                                for _ in range(15):
-                                    angle = random.uniform(0, 2 * math.pi)
-                                    speed = random.uniform(2, 6)
-                                    self.particles.append(Particle(
-                                        enemy.x, enemy.y,
-                                        enemy.color,
-                                        math.cos(angle) * speed,
-                                        math.sin(angle) * speed,
-                                        40
-                                    ))
-                                
-                                # Убийство врага
-                                self.enemies.remove(enemy)
-                                self.player.kills += 1
-                                
-                                # Добавление в ленту убийств
-                                self.kill_feed.append(KillFeedEntry(enemy.type))
-                                if len(self.kill_feed) > 5:
-                                    self.kill_feed.pop(0)
-                                
-                                # Комбо система
-                                self.player.combo += 1
-                                self.player.combo_timer = 180
-                                combo_bonus = 1 + (self.player.combo // 5) * 0.1
-                                
-                                bounty = int(enemy.bounty * combo_bonus)
-                                self.player.money += bounty
-                                self.score += int(bounty // 2 * combo_bonus)
-                                self.player.total_damage_dealt += damage
-                                
-                                # Опыт за убийство
-                                exp_gain = 10 + enemy.level * 5
-                                if enemy.type == "босс":
-                                    exp_gain *= 3
-                                self.player.experience += exp_gain
-                                
-                                # Проверка повышения уровня
-                                while self.player.experience >= self.player.experience_to_next:
-                                    self.player.experience -= self.player.experience_to_next
-                                    self.player.level += 1
-                                    self.player.skill_points += 1
-                                    self.player.experience_to_next = int(self.player.experience_to_next * 1.5)
-                                    # Восстановление здоровья при повышении уровня
-                                    self.player.health = self.player.max_health
-                                    # Эффект повышения уровня
-                                    for _ in range(50):
-                                        angle = random.uniform(0, 2 * math.pi)
-                                        speed = random.uniform(2, 8)
-                                        self.particles.append(Particle(
-                                            self.player.x, self.player.y,
-                                            (0, 255, 255),
-                                            math.cos(angle) * speed,
-                                            math.sin(angle) * speed,
-                                            60
-                                        ))
-                                
-                                # Подсчет боссов
-                                if enemy.type == "босс":
-                                    self.player.bosses_killed += 1
-                                elif enemy.type == "снайпер":
-                                    self.player.headshots += 1
-                                
-                                # Кровавые частицы
-                                for _ in range(20):
-                                    angle = random.uniform(0, 2 * math.pi)
-                                    speed = random.uniform(1, 4)
-                                    self.particles.append(BloodParticle(
-                                        enemy.x, enemy.y,
-                                        math.cos(angle) * speed,
-                                        math.sin(angle) * speed
-                                    ))
-
-                                # Обновление миссий
-                                current_mission = self.missions[self.current_mission_index]
-                                if current_mission.type == "kill":
-                                    if current_mission.title == "РАЗБОРКА С МЕНТАМИ" and enemy.type == "мент":
-                                        self.player.mission_kills += 1
-                                        if current_mission.update():
-                                            self.complete_mission()
-                                    elif current_mission.title == "УБИТЬ БОССОВ" and enemy.type == "босс":
-                                        self.player.mission_kills += 1
-                                        if current_mission.update():
-                                            self.complete_mission()
-                                elif current_mission.type == "collect":
-                                    if current_mission.update(enemy.bounty):
-                                        self.complete_mission()
-
-                        if bullet in self.bullets:
-                            self.bullets.remove(bullet)
-                        if bullet.type != "explosive":
-                            break
-
-            # Регенерация здоровья (медленная)
-            self.player.regen_timer += 1
-            current_time = pygame.time.get_ticks()
-            if current_time - self.player.last_damage_time > 5000 and self.player.health < self.player.max_health:
-                if self.player.regen_timer >= 180:  # Каждые 3 секунды
-                    self.player.health = min(self.player.max_health, self.player.health + 1)
-                    self.player.regen_timer = 0
+            # Обновление пуль, врагов, частиц (используется GameplayManager)
+            score_change = self.gameplay_manager.update_bullets(self.city.world_size)
+            self.score += score_change
             
-            # Обновление комбо
-            if self.player.combo_timer > 0:
-                self.player.combo_timer -= 1
-            else:
-                self.player.combo = 0
-
             # Обновление врагов
-            for enemy in self.enemies:
-                damage = enemy.update(self.player.x, self.player.y)
-                if damage > 0:
-                    # Броня снижает урон
-                    actual_damage = max(1, damage - self.player.armor // 2)
-                    self.player.health -= actual_damage
-                    self.player.last_damage_time = current_time
-                    self.player.regen_timer = 0
-
-                if self.player.health <= 0:
-                    self.state = GameState.GAME_OVER
-
-            # Обновление частиц (в координатах мира)
-            for particle in self.particles[:]:
-                if not particle.update():
-                    self.particles.remove(particle)
-                # Ограничиваем частицы границами мира
-                particle.x = max(0, min(self.city.world_size, particle.x))
-                particle.y = max(0, min(self.city.world_size, particle.y))
+            if self.gameplay_manager.update_enemies():
+                self.state = GameState.GAME_OVER
             
-            # Обновление чисел урона
-            for dmg_num in self.damage_numbers[:]:
-                if not dmg_num.update():
-                    self.damage_numbers.remove(dmg_num)
-            
-            # Обновление ленты убийств
-            for kill_entry in self.kill_feed[:]:
-                if not kill_entry.update():
-                    self.kill_feed.remove(kill_entry)
+            # Обновление остальных систем
+            self.gameplay_manager.update_particles(self.city.world_size)
+            self.gameplay_manager.update_damage_numbers()
+            self.gameplay_manager.update_kill_feed()
+            self.gameplay_manager.update_player_regen()
+            self.gameplay_manager.update_combo()
             
             # Обновление тряски экрана
-            if self.screen_shake > 0:
-                self.screen_shake -= 1
-                self.screen_shake_intensity *= 0.9
+            self.screen_shake.update()
 
             # Проверка близости к магазину в открытом мире
             location = self.city.get_current_location()
@@ -629,22 +411,8 @@ class Game:
                 # Показываем подсказку о входе в магазин
                 pass
 
-            # Смена волны
-            if self.player.kills >= self.wave * 10:
-                self.wave += 1
-                # Восстановление здоровья при смене волны
-                self.player.health = min(self.player.max_health, self.player.health + 20)
-                # Эффект при смене волны
-                for _ in range(30):
-                    angle = random.uniform(0, 2 * math.pi)
-                    speed = random.uniform(3, 8)
-                    self.particles.append(Particle(
-                        self.player.x, self.player.y,
-                        GOLD,
-                        math.cos(angle) * speed,
-                        math.sin(angle) * speed,
-                        50
-                    ))
+            # Смена волны (используется WaveManager)
+            self.wave_manager.check_wave_change(self.player.kills, self.particles, self.player)
         
         # Обновление сообщения магазина
         if self.shop_message_timer > 0:
@@ -786,7 +554,7 @@ class Game:
         money_text = small_font.render(f"БАБЛО: {self.player.money} РУБ.", True, GOLD)
         self.screen.blit(money_text, (10, 65))
 
-        wave_text = small_font.render(f"ВОЛНА: {self.wave}", True, BLUE)
+        wave_text = small_font.render(f"ВОЛНА: {self.wave_manager.wave}", True, BLUE)
         self.screen.blit(wave_text, (10, 90))
 
         # Миссия
@@ -1072,7 +840,7 @@ class Game:
         self.screen.blit(game_over, (SCREEN_WIDTH // 2 - game_over.get_width() // 2, 200))
 
         stats = [
-            f"Волна: {self.wave}",
+            f"Волна: {self.wave_manager.wave}",
             f"Убито врагов: {self.player.kills}",
             f"Выполнено задач: {self.player.completed_missions}",
             f"Заработано: {self.player.money} рублей",
@@ -1097,7 +865,7 @@ class Game:
             "настоящим хозяином улиц!",
             "",
             f"ФИНАЛЬНАЯ СТАТИСТИКА:",
-            f"Волна: {self.wave}",
+            f"Волна: {self.wave_manager.wave}",
             f"Убито врагов: {self.player.kills}",
             f"Заработано: {self.player.money} рублей",
             f"Финальный счет: {self.score}",
@@ -1183,7 +951,7 @@ class Game:
         self.damage_numbers = []
         self.kill_feed = []
         self.score = 0
-        self.wave = 1
+        self.wave_manager.wave = 1
         self.current_mission_index = 0
         self.enemy_spawn_timer = 0
         self.player.completed_missions = 0
