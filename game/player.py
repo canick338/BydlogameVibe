@@ -49,6 +49,8 @@ class Player:
         self.combo = 0
         self.combo_timer = 0
         self.level = 1
+        self.is_moving = False  # Флаг для анимации движения
+        self.last_move_time = 0
         self.experience = 0
         self.experience_to_next = 100
         self.skill_points = 0
@@ -61,6 +63,14 @@ class Player:
         }
 
     def move(self, dx, dy, world_size=5000):
+        if dx != 0 or dy != 0:
+            self.is_moving = True
+            self.last_move_time = pygame.time.get_ticks()
+        else:
+            # Если не двигаемся более 100мс, то останавливаемся
+            if pygame.time.get_ticks() - self.last_move_time > 100:
+                self.is_moving = False
+        
         self.x += dx * self.speed
         self.y += dy * self.speed
         self.x = max(self.width // 2, min(world_size - self.width // 2, self.x))
@@ -75,31 +85,39 @@ class Player:
     def switch_weapon(self, direction):
         self.current_weapon = (self.current_weapon + direction) % len(self.weapons)
 
-    def draw(self, screen):
+    def draw(self, screen, draw_x=None, draw_y=None):
+        """
+        Отрисовка игрока
+        draw_x, draw_y - опциональные координаты для отрисовки (если None, используются self.x, self.y)
+        """
+        # Используем переданные координаты или внутренние
+        x = draw_x if draw_x is not None else self.x
+        y = draw_y if draw_y is not None else self.y
+        
         # Тень персонажа
         shadow_surface = pygame.Surface((self.width + 10, 20), pygame.SRCALPHA)
         pygame.draw.ellipse(shadow_surface, (0, 0, 0, 100), (0, 0, self.width + 10, 20))
-        screen.blit(shadow_surface, (self.x - (self.width + 10) // 2, self.y + self.height // 2))
+        screen.blit(shadow_surface, (x - (self.width + 10) // 2, y + self.height // 2))
         
         # Тело пацана с градиентом
         body_color = (180, 80, 80) if self.health > 50 else (200, 50, 50)
-        body_rect = pygame.Rect(self.x - self.width // 2, self.y - self.height // 2, self.width, self.height)
+        body_rect = pygame.Rect(x - self.width // 2, y - self.height // 2, self.width, self.height)
         
         # Градиент тела
         for i in range(self.height):
             grad_factor = i / self.height
             grad_color = tuple(int(c * (0.85 + grad_factor * 0.15)) for c in body_color)
             pygame.draw.line(screen, grad_color, 
-                           (self.x - self.width // 2, self.y - self.height // 2 + i),
-                           (self.x + self.width // 2, self.y - self.height // 2 + i))
+                           (x - self.width // 2, y - self.height // 2 + i),
+                           (x + self.width // 2, y - self.height // 2 + i))
         
         # Обводка
         pygame.draw.rect(screen, tuple(min(255, c + 40) for c in body_color), body_rect, 2)
 
         # Голова с эффектом
         head_radius = 16
-        head_x = self.x + math.cos(self.direction) * 25
-        head_y = self.y + math.sin(self.direction) * 25
+        head_x = x + math.cos(self.direction) * 25
+        head_y = y + math.sin(self.direction) * 25
         
         # Свечение головы
         head_glow = pygame.Surface((head_radius * 2 + 6, head_radius * 2 + 6), pygame.SRCALPHA)
@@ -125,8 +143,8 @@ class Player:
 
         # Оружие с эффектом
         weapon = self.weapons[self.current_weapon]
-        weapon_x = self.x + math.cos(self.direction) * 35
-        weapon_y = self.y + math.sin(self.direction) * 35
+        weapon_x = x + math.cos(self.direction) * 35
+        weapon_y = y + math.sin(self.direction) * 35
         
         # Металлический эффект оружия
         weapon_rect = pygame.Rect(weapon_x - 8, weapon_y - 4, 25, 8)
