@@ -8,7 +8,7 @@ import math
 class Knife:
     def __init__(self):
         self.name = "НОЖ"
-        self.damage = 120
+        self.damage = 121
         self.range = 60  # Дальность атаки
         self.speed = 2.0  # Скорость атаки (ударов в секунду)
         self.last_attack = 0
