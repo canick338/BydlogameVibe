@@ -31,6 +31,7 @@ from game.mission import Mission
 from game.save_system import SaveSystem
 from game.card import Card
 from game.card_collection import get_all_cards
+from game.settings import Settings
 from game.shop import Shop
 from game.city import City, Location
 from scenes.hotline_cutscene import HotlineCutscene
@@ -83,11 +84,11 @@ class Game:
         self.skip_cutscene_timer = 0
         
         # Настройки
-        self.settings_fullscreen = FULLSCREEN
-        self.settings_music_volume = 0.7
-        self.settings_selected_option = 0  # Выбранная опция в меню настроек
+        self.settings = Settings()
+        self.settings.fullscreen = FULLSCREEN
+        self.settings.cutscene_skip_enabled = ENABLE_CUTSCENE_SKIP
         # Применяем громкость музыки
-        pygame.mixer.music.set_volume(self.settings_music_volume)
+        pygame.mixer.music.set_volume(self.settings.music_volume)
         
         # Система карточек и сохранения
         self.all_cards = get_all_cards()
@@ -478,14 +479,14 @@ class Game:
 
                 elif self.state == GameState.SETTINGS:
                     if event.key == pygame.K_UP or event.key == pygame.K_w:
-                        self.settings_selected_option = max(0, self.settings_selected_option - 1)
+                        self.settings.selected_option = max(0, self.settings.selected_option - 1)
                     elif event.key == pygame.K_DOWN or event.key == pygame.K_s:
-                        self.settings_selected_option = min(2, self.settings_selected_option + 1)
+                        self.settings.selected_option = min(2, self.settings.selected_option + 1)
                     elif event.key == pygame.K_RETURN or event.key == pygame.K_SPACE:
                         # Изменение выбранной опции
-                        if self.settings_selected_option == 0:  # Полноэкранный режим
-                            self.settings_fullscreen = not self.settings_fullscreen
-                            FULLSCREEN = self.settings_fullscreen
+                        if self.settings.selected_option == 0:  # Полноэкранный режим
+                            self.settings.fullscreen = not self.settings.fullscreen
+                            FULLSCREEN = self.settings.fullscreen
                             if FULLSCREEN:
                                 screen_info = pygame.display.Info()
                                 SCREEN_WIDTH = screen_info.current_w
@@ -500,16 +501,17 @@ class Game:
                             else:
                                 self.screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT))
                             self.render_surface = pygame.Surface((BASE_WIDTH, BASE_HEIGHT))
-                        elif self.settings_selected_option == 1:  # Пропуск катсцен
-                            ENABLE_CUTSCENE_SKIP = not ENABLE_CUTSCENE_SKIP
+                        elif self.settings.selected_option == 1:  # Пропуск катсцен
+                            self.settings.cutscene_skip_enabled = not self.settings.cutscene_skip_enabled
+                            ENABLE_CUTSCENE_SKIP = self.settings.cutscene_skip_enabled
                     elif event.key == pygame.K_LEFT:
-                        if self.settings_selected_option == 2:  # Громкость музыки
-                            self.settings_music_volume = max(0.0, self.settings_music_volume - 0.1)
-                            pygame.mixer.music.set_volume(self.settings_music_volume)
+                        if self.settings.selected_option == 2:  # Громкость музыки
+                            self.settings.music_volume = max(0.0, self.settings.music_volume - 0.1)
+                            pygame.mixer.music.set_volume(self.settings.music_volume)
                     elif event.key == pygame.K_RIGHT:
-                        if self.settings_selected_option == 2:  # Громкость музыки
-                            self.settings_music_volume = min(1.0, self.settings_music_volume + 0.1)
-                            pygame.mixer.music.set_volume(self.settings_music_volume)
+                        if self.settings.selected_option == 2:  # Громкость музыки
+                            self.settings.music_volume = min(1.0, self.settings.music_volume + 0.1)
+                            pygame.mixer.music.set_volume(self.settings.music_volume)
 
                 elif self.state == GameState.SHOP:
                     if event.key == pygame.K_UP or event.key == pygame.K_w:
@@ -702,11 +704,11 @@ class Game:
                         for i in range(3):
                             if (SCREEN_WIDTH // 2 - 200 <= mouse_pos[0] <= SCREEN_WIDTH // 2 + 200 and
                                 settings_y + i * 70 <= mouse_pos[1] <= settings_y + i * 70 + 50):
-                                self.settings_selected_option = i
+                                self.settings.selected_option = i
                                 # Изменяем значение при клике
                                 if i == 0:  # Полноэкранный режим
-                                    self.settings_fullscreen = not self.settings_fullscreen
-                                    FULLSCREEN = self.settings_fullscreen
+                                    self.settings.fullscreen = not self.settings.fullscreen
+                                    FULLSCREEN = self.settings.fullscreen
                                     if FULLSCREEN:
                                         screen_info = pygame.display.Info()
                                         SCREEN_WIDTH = screen_info.current_w
@@ -722,7 +724,8 @@ class Game:
                                         self.screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT))
                                     self.render_surface = pygame.Surface((BASE_WIDTH, BASE_HEIGHT))
                                 elif i == 1:  # Пропуск катсцен
-                                    ENABLE_CUTSCENE_SKIP = not ENABLE_CUTSCENE_SKIP
+                                    self.settings.cutscene_skip_enabled = not self.settings.cutscene_skip_enabled
+                                    ENABLE_CUTSCENE_SKIP = self.settings.cutscene_skip_enabled
 
             elif event.type == pygame.MOUSEBUTTONUP:
                 if event.button == 1 and self.state == GameState.PLAYING:
@@ -1327,54 +1330,11 @@ class Game:
         self.screen.blit(back_text, (SCREEN_WIDTH // 2 - back_text.get_width() // 2, SCREEN_HEIGHT - 100))
 
     def draw_settings(self):
-        self.screen.fill(DARK_GREY)
-        
-        title = title_font.render("НАСТРОЙКИ", True, GOLD)
-        self.screen.blit(title, (SCREEN_WIDTH // 2 - title.get_width() // 2, 100))
-        
-        # Опции настроек
-        settings_y = 250
-        settings = [
-            ("ПОЛНОЭКРАННЫЙ РЕЖИМ", self.settings_fullscreen),
-            ("ПРОПУСК КАТСЦЕН", ENABLE_CUTSCENE_SKIP),
-            ("ГРОМКОСТЬ МУЗЫКИ", f"{int(self.settings_music_volume * 100)}%")
-        ]
-        
-        mouse_pos = pygame.mouse.get_pos()
-        for i, (name, value) in enumerate(settings):
-            # Подсветка выбранной опции
-            is_selected = i == self.settings_selected_option
-            is_hovered = (SCREEN_WIDTH // 2 - 200 <= mouse_pos[0] <= SCREEN_WIDTH // 2 + 200 and
-                         settings_y + i * 70 <= mouse_pos[1] <= settings_y + i * 70 + 50)
-            
-            bg_color = GOLD if (is_selected or is_hovered) else DARK_GREY
-            text_color = BLACK if (is_selected or is_hovered) else WHITE
-            
-            # Фон опции
-            pygame.draw.rect(self.screen, bg_color, (SCREEN_WIDTH // 2 - 200, settings_y + i * 70, 400, 50))
-            pygame.draw.rect(self.screen, WHITE, (SCREEN_WIDTH // 2 - 200, settings_y + i * 70, 400, 50), 2)
-            
-            # Название опции
-            name_text = menu_font.render(name, True, text_color)
-            self.screen.blit(name_text, (SCREEN_WIDTH // 2 - 180, settings_y + i * 70 + 10))
-            
-            # Значение опции
-            if isinstance(value, bool):
-                value_text = "ВКЛ" if value else "ВЫКЛ"
-                value_color = GREEN if value else RED
-            else:
-                value_text = str(value)
-                value_color = text_color
-            
-            value_render = dialog_font.render(value_text, True, value_color)
-            self.screen.blit(value_render, (SCREEN_WIDTH // 2 + 150, settings_y + i * 70 + 15))
-        
-        # Подсказки
-        hint1 = small_font.render("СТРЕЛКИ ВВЕРХ/ВНИЗ - выбор опции | ENTER/ПРОБЕЛ - изменить | ESC - назад", True, LIGHT_GREY)
-        self.screen.blit(hint1, (SCREEN_WIDTH // 2 - hint1.get_width() // 2, SCREEN_HEIGHT - 100))
-        
-        hint2 = small_font.render("Для изменения громкости используйте ← →", True, LIGHT_GREY)
-        self.screen.blit(hint2, (SCREEN_WIDTH // 2 - hint2.get_width() // 2, SCREEN_HEIGHT - 70))
+        """Отрисовка настроек через класс Settings"""
+        # Обновляем значения в классе настроек перед отрисовкой
+        self.settings.fullscreen = FULLSCREEN
+        self.settings.cutscene_skip_enabled = ENABLE_CUTSCENE_SKIP
+        self.settings.draw(self.screen)
     
     def draw_card_shop(self):
         """Отрисовка магазина карточек"""
