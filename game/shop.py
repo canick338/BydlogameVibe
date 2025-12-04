@@ -27,9 +27,11 @@ class Shop:
         ]
         self.selected_item = 0
 
-    def buy_item(self, item, player):
+    def buy_item(self, item, player, save_callback=None):
         if player.money >= item["price"]:
             player.money -= item["price"]
+            if save_callback:
+                save_callback()  # Сохраняем при покупке
             if item["type"] == "ammo":
                 weapon = player.weapons[item["weapon_index"]]
                 weapon.ammo = min(weapon.max_ammo, weapon.ammo + item["amount"])

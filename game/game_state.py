@@ -17,4 +17,6 @@ class GameState(Enum):
     LOCATION_SELECT = 9
     SKILLS = 10
     SETTINGS = 11
+    CARD_SHOP = 12
+    CARD_COLLECTION = 13
 

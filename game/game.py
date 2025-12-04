@@ -28,6 +28,9 @@ from game.bullet import Bullet
 from game.particle import Particle, BloodParticle
 from game.achievement import Achievement
 from game.mission import Mission
+from game.save_system import SaveSystem
+from game.card import Card
+from game.card_collection import get_all_cards
 from game.shop import Shop
 from game.city import City, Location
 from scenes.hotline_cutscene import HotlineCutscene
@@ -85,6 +88,22 @@ class Game:
         self.settings_selected_option = 0  # Выбранная опция в меню настроек
         # Применяем громкость музыки
         pygame.mixer.music.set_volume(self.settings_music_volume)
+        
+        # Система карточек и сохранения
+        self.all_cards = get_all_cards()
+        self.owned_cards = []  # Список ID карточек
+        self.active_cards = []  # Список активных ID карточек
+        self.card_shop_selected = 0  # Выбранная карточка в магазине
+        self.card_collection_selected = 0  # Выбранная карточка в коллекции
+        
+        # Загружаем сохранение
+        save_data = SaveSystem.load_game()
+        self.player.money = save_data["money"]
+        self.owned_cards = save_data["owned_cards"]
+        self.active_cards = save_data["active_cards"]
+        
+        # Применяем бафы от активных карточек
+        self._apply_card_buffs()
 
         # Инициализация миссий и достижений перед созданием менеджеров
         self.init_missions()
@@ -203,6 +222,7 @@ class Game:
     def complete_mission(self):
         mission = self.missions[self.current_mission_index]
         self.player.money += mission.reward
+        self._save_game()  # Сохраняем при изменении денег
         self.player.completed_missions += 1
         self.score += mission.reward // 10
 
@@ -260,6 +280,7 @@ class Game:
 
         bounty = int(enemy.bounty * combo_bonus * 1.5)  # Бонус за нож
         self.player.money += bounty
+        self._save_game()  # Сохраняем при изменении денег
         score_change = int(bounty // 2 * combo_bonus)
         self.score += score_change
         self.player.total_damage_dealt += damage
@@ -331,6 +352,81 @@ class Game:
                     pygame.mixer.music.play(-1)
                 except:
                     pass
+    
+    def _apply_card_buffs(self):
+        """Применяет бафы от активных карточек к игроку"""
+        # Сохраняем текущее здоровье для восстановления пропорции
+        current_health_ratio = self.player.health / self.player.max_health if self.player.max_health > 0 else 1.0
+        
+        # Сбрасываем множители и базовые значения
+        self.player.damage_multiplier = 1.0
+        self.player.speed = 5.0  # Базовая скорость
+        self.player.max_health = 100  # Базовое здоровье
+        
+        # Применяем бафы от каждой активной карточки
+        for card_id in self.active_cards:
+            card = self._get_card_by_id(card_id)
+            if card:
+                if card.damage_bonus > 1.0:
+                    self.player.damage_multiplier *= card.damage_bonus
+                if card.speed_bonus > 0:
+                    self.player.speed += card.speed_bonus
+                if card.health_bonus > 0:
+                    self.player.max_health += card.health_bonus
+        
+        # Восстанавливаем здоровье пропорционально
+        self.player.health = int(self.player.max_health * current_health_ratio)
+        self.player.health = min(self.player.health, self.player.max_health)
+        
+        # Ограничиваем скорость
+        self.player.speed = min(10.0, self.player.speed)
+    
+    def _get_card_by_id(self, card_id):
+        """Находит карточку по ID"""
+        for card in self.all_cards:
+            if card.card_id == card_id:
+                return card
+        return None
+    
+    def _save_game(self):
+        """Сохраняет прогресс игры"""
+        SaveSystem.save_game(self.player.money, self.owned_cards, self.active_cards)
+    
+    def buy_card(self, card_id):
+        """Покупает карточку"""
+        card = self._get_card_by_id(card_id)
+        if not card:
+            return False, "Карточка не найдена"
+        
+        if card_id in self.owned_cards:
+            return False, "Карточка уже куплена"
+        
+        if self.player.money < card.price:
+            return False, "Недостаточно денег"
+        
+        self.player.money -= card.price
+        self.owned_cards.append(card_id)
+        self._save_game()
+        return True, f"Карточка {card.name} куплена!"
+    
+    def toggle_card_active(self, card_id):
+        """Активирует/деактивирует карточку"""
+        if card_id not in self.owned_cards:
+            return False, "Карточка не куплена"
+        
+        if card_id in self.active_cards:
+            self.active_cards.remove(card_id)
+            self._apply_card_buffs()  # Пересчитываем бафы
+            self._save_game()
+            return True, "Карточка деактивирована"
+        else:
+            # Максимум 3 активные карточки
+            if len(self.active_cards) >= 3:
+                return False, "Максимум 3 активные карточки"
+            self.active_cards.append(card_id)
+            self._apply_card_buffs()  # Пересчитываем бафы
+            self._save_game()
+            return True, "Карточка активирована"
 
     def handle_events(self):
         global FULLSCREEN, SCREEN_WIDTH, SCREEN_HEIGHT, SCALE_X, SCALE_Y, SCALE, ENABLE_CUTSCENE_SKIP
@@ -370,8 +466,15 @@ class Game:
                         self.state = GameState.PLAYING
                     elif self.state == GameState.SETTINGS:
                         self.state = GameState.MAIN_MENU
+                    elif self.state == GameState.CARD_SHOP:
+                        self.state = GameState.MAIN_MENU
+                        self._save_game()
+                    elif self.state == GameState.CARD_COLLECTION:
+                        self.state = GameState.MAIN_MENU
+                        self._save_game()
                     elif self.state in [GameState.GAME_OVER, GameState.WIN]:
                         self.state = GameState.MAIN_MENU
+                        self._save_game()
 
                 elif self.state == GameState.SETTINGS:
                     if event.key == pygame.K_UP or event.key == pygame.K_w:
@@ -415,7 +518,7 @@ class Game:
                         self.shop.selected_item = min(len(self.shop.items) - 1, self.shop.selected_item + 1)
                     elif event.key == pygame.K_RETURN or event.key == pygame.K_SPACE:
                         item = self.shop.items[self.shop.selected_item]
-                        success, message = self.shop.buy_item(item, self.player)
+                        success, message = self.shop.buy_item(item, self.player, self._save_game)
                         self.shop_message = message
                         self.shop_message_timer = 120
 
@@ -448,6 +551,36 @@ class Game:
                         if self.player.skill_points > 0:
                             self.player.skills["regen"] += 1
                             self.player.skill_points -= 1
+                
+                elif self.state == GameState.CARD_SHOP:
+                    if event.key == pygame.K_LEFT or event.key == pygame.K_a:
+                        self.card_shop_selected = max(0, self.card_shop_selected - 1)
+                    elif event.key == pygame.K_RIGHT or event.key == pygame.K_d:
+                        self.card_shop_selected = min(len(self.all_cards) - 1, self.card_shop_selected + 1)
+                    elif event.key == pygame.K_RETURN or event.key == pygame.K_SPACE:
+                        # Покупка карточки
+                        card = self.all_cards[self.card_shop_selected]
+                        success, message = self.buy_card(card.card_id)
+                        self.shop_message = message
+                        self.shop_message_timer = 120
+                
+                elif self.state == GameState.CARD_COLLECTION:
+                    if event.key == pygame.K_LEFT or event.key == pygame.K_a:
+                        owned_list = [c for c in self.all_cards if c.card_id in self.owned_cards]
+                        if owned_list:
+                            self.card_collection_selected = max(0, self.card_collection_selected - 1)
+                    elif event.key == pygame.K_RIGHT or event.key == pygame.K_d:
+                        owned_list = [c for c in self.all_cards if c.card_id in self.owned_cards]
+                        if owned_list:
+                            self.card_collection_selected = min(len(owned_list) - 1, self.card_collection_selected + 1)
+                    elif event.key == pygame.K_RETURN or event.key == pygame.K_SPACE:
+                        # Активация/деактивация карточки
+                        owned_list = [c for c in self.all_cards if c.card_id in self.owned_cards]
+                        if owned_list:
+                            card = owned_list[self.card_collection_selected]
+                            success, message = self.toggle_card_active(card.card_id)
+                            self.shop_message = message
+                            self.shop_message_timer = 120
 
                 elif event.key == pygame.K_SPACE:
                     # Обработка пробела в катсценах - продолжение диалогов
@@ -544,18 +677,23 @@ class Game:
                         button_height = 50
                         center_x = SCREEN_WIDTH // 2
 
-                        for i in range(4):
-                            btn_x = center_x - button_width // 2
-                            btn_y = button_y + i * 80
-                            if (btn_x <= mouse_pos[0] <= btn_x + button_width and
+                        for i in range(6):
+                            btn_x = center_x - 150
+                            btn_y = button_y + i * 70
+                            if (btn_x <= mouse_pos[0] <= btn_x + 300 and
                                 btn_y <= mouse_pos[1] <= btn_y + button_height):
                                 if i == 0:  # НАЧАТЬ ИГРУ
                                     self.start_game()
-                                elif i == 1:  # УПРАВЛЕНИЕ
+                                elif i == 1:  # МАГАЗИН КАРТОЧЕК
+                                    self.state = GameState.CARD_SHOP
+                                elif i == 2:  # КОЛЛЕКЦИЯ
+                                    self.state = GameState.CARD_COLLECTION
+                                elif i == 3:  # УПРАВЛЕНИЕ
                                     self.state = GameState.CONTROLS
-                                elif i == 2:  # НАСТРОЙКИ
+                                elif i == 4:  # НАСТРОЙКИ
                                     self.state = GameState.SETTINGS
-                                elif i == 3:  # ВЫХОД
+                                elif i == 5:  # ВЫХОД
+                                    self._save_game()
                                     return False
                     elif self.state == GameState.SETTINGS:
                         # Обработка кликов по настройкам
@@ -764,6 +902,7 @@ class Game:
 
                             bounty = int(enemy.bounty * combo_bonus)
                             self.player.money += bounty
+                            self._save_game()  # Сохраняем при изменении денег
                             score_change = int(bounty // 2 * combo_bonus)
                             self.score += score_change
                             self.player.total_damage_dealt += damage
@@ -1144,6 +1283,8 @@ class Game:
         button_y = 350
         buttons = [
             ("НАЧАТЬ ИГРУ", lambda: self.start_game()),
+            ("МАГАЗИН КАРТОЧЕК", lambda: setattr(self, 'state', GameState.CARD_SHOP)),
+            ("КОЛЛЕКЦИЯ", lambda: setattr(self, 'state', GameState.CARD_COLLECTION)),
             ("УПРАВЛЕНИЕ", lambda: setattr(self, 'state', GameState.CONTROLS)),
             ("НАСТРОЙКИ", lambda: setattr(self, 'state', GameState.SETTINGS)),
             ("ВЫХОД", sys.exit)
@@ -1151,14 +1292,14 @@ class Game:
 
         mouse_pos = pygame.mouse.get_pos()
         for i, (text, action) in enumerate(buttons):
-            color = GOLD if (mouse_pos[0] > SCREEN_WIDTH // 2 - 100 and mouse_pos[0] < SCREEN_WIDTH // 2 + 100 and
-                             mouse_pos[1] > button_y + i * 80 and mouse_pos[1] < button_y + i * 80 + 50) else LIGHT_GREY
+            color = GOLD if (mouse_pos[0] > SCREEN_WIDTH // 2 - 150 and mouse_pos[0] < SCREEN_WIDTH // 2 + 150 and
+                             mouse_pos[1] > button_y + i * 70 and mouse_pos[1] < button_y + i * 70 + 50) else LIGHT_GREY
 
-            pygame.draw.rect(self.screen, color, (SCREEN_WIDTH // 2 - 100, button_y + i * 80, 200, 50))
-            pygame.draw.rect(self.screen, WHITE, (SCREEN_WIDTH // 2 - 100, button_y + i * 80, 200, 50), 2)
+            pygame.draw.rect(self.screen, color, (SCREEN_WIDTH // 2 - 150, button_y + i * 70, 300, 50))
+            pygame.draw.rect(self.screen, WHITE, (SCREEN_WIDTH // 2 - 150, button_y + i * 70, 300, 50), 2)
 
             btn_text = menu_font.render(text, True, BLACK)
-            self.screen.blit(btn_text, (SCREEN_WIDTH // 2 - btn_text.get_width() // 2, button_y + i * 80 + 10))
+            self.screen.blit(btn_text, (SCREEN_WIDTH // 2 - btn_text.get_width() // 2, button_y + i * 70 + 10))
 
     def show_controls(self):
         self.screen.fill(DARK_GREY)
@@ -1234,6 +1375,86 @@ class Game:
         
         hint2 = small_font.render("Для изменения громкости используйте ← →", True, LIGHT_GREY)
         self.screen.blit(hint2, (SCREEN_WIDTH // 2 - hint2.get_width() // 2, SCREEN_HEIGHT - 70))
+    
+    def draw_card_shop(self):
+        """Отрисовка магазина карточек"""
+        self.screen.fill((20, 10, 30))  # Тёмно-фиолетовый фон
+        
+        # Заголовок
+        title = title_font.render("МАГАЗИН КАРТОЧЕК", True, GOLD)
+        self.screen.blit(title, (SCREEN_WIDTH // 2 - title.get_width() // 2, 50))
+        
+        # Деньги
+        money_text = menu_font.render(f"БАБЛО: {self.player.money} РУБ.", True, GOLD)
+        self.screen.blit(money_text, (SCREEN_WIDTH // 2 - money_text.get_width() // 2, 120))
+        
+        # Отрисовка выбранной карточки
+        if 0 <= self.card_shop_selected < len(self.all_cards):
+            card = self.all_cards[self.card_shop_selected]
+            card_x = SCREEN_WIDTH // 2 - 150
+            card_y = 180
+            owned = card.card_id in self.owned_cards
+            card.draw_card(self.screen, card_x, card_y, 300, 450, selected=True, owned=owned)
+        
+        # Сообщение
+        if self.shop_message_timer > 0:
+            msg_color = GREEN if "куплена" in self.shop_message.lower() or "Куплено" in self.shop_message else RED
+            msg_text = dialog_font.render(self.shop_message, True, msg_color)
+            self.screen.blit(msg_text, (SCREEN_WIDTH // 2 - msg_text.get_width() // 2, SCREEN_HEIGHT - 150))
+        
+        # Подсказки
+        hint1 = small_font.render("← → - выбор карточки | ENTER - купить | ESC - назад", True, LIGHT_GREY)
+        self.screen.blit(hint1, (SCREEN_WIDTH // 2 - hint1.get_width() // 2, SCREEN_HEIGHT - 80))
+        
+        # Информация о карточке
+        if 0 <= self.card_shop_selected < len(self.all_cards):
+            card = self.all_cards[self.card_shop_selected]
+            info_text = small_font.render(f"Карточка {self.card_shop_selected + 1} из {len(self.all_cards)}", True, WHITE)
+            self.screen.blit(info_text, (SCREEN_WIDTH // 2 - info_text.get_width() // 2, SCREEN_HEIGHT - 50))
+    
+    def draw_card_collection(self):
+        """Отрисовка коллекции карточек"""
+        self.screen.fill((20, 10, 30))  # Тёмно-фиолетовый фон
+        
+        # Заголовок
+        title = title_font.render("КОЛЛЕКЦИЯ КАРТОЧЕК", True, GOLD)
+        self.screen.blit(title, (SCREEN_WIDTH // 2 - title.get_width() // 2, 50))
+        
+        # Активные карточки
+        active_text = menu_font.render(f"АКТИВНЫХ: {len(self.active_cards)}/3", True, GOLD)
+        self.screen.blit(active_text, (SCREEN_WIDTH // 2 - active_text.get_width() // 2, 120))
+        
+        # Получаем только купленные карточки
+        owned_list = [c for c in self.all_cards if c.card_id in self.owned_cards]
+        
+        if owned_list:
+            # Отрисовка выбранной карточки
+            if 0 <= self.card_collection_selected < len(owned_list):
+                card = owned_list[self.card_collection_selected]
+                card_x = SCREEN_WIDTH // 2 - 150
+                card_y = 180
+                active = card.card_id in self.active_cards
+                card.draw_card(self.screen, card_x, card_y, 300, 450, selected=True, owned=True, active=active)
+            
+            # Сообщение
+            if self.shop_message_timer > 0:
+                msg_color = GREEN if "активирована" in self.shop_message.lower() else RED
+                msg_text = dialog_font.render(self.shop_message, True, msg_color)
+                self.screen.blit(msg_text, (SCREEN_WIDTH // 2 - msg_text.get_width() // 2, SCREEN_HEIGHT - 150))
+            
+            # Подсказки
+            hint1 = small_font.render("← → - выбор карточки | ENTER - активировать/деактивировать | ESC - назад", True, LIGHT_GREY)
+            self.screen.blit(hint1, (SCREEN_WIDTH // 2 - hint1.get_width() // 2, SCREEN_HEIGHT - 80))
+            
+            # Информация
+            info_text = small_font.render(f"Карточка {self.card_collection_selected + 1} из {len(owned_list)}", True, WHITE)
+            self.screen.blit(info_text, (SCREEN_WIDTH // 2 - info_text.get_width() // 2, SCREEN_HEIGHT - 50))
+        else:
+            # Нет карточек
+            no_cards_text = title_font.render("КОЛЛЕКЦИЯ ПУСТА", True, LIGHT_GREY)
+            self.screen.blit(no_cards_text, (SCREEN_WIDTH // 2 - no_cards_text.get_width() // 2, SCREEN_HEIGHT // 2))
+            hint_text = small_font.render("Купите карточки в магазине!", True, GOLD)
+            self.screen.blit(hint_text, (SCREEN_WIDTH // 2 - hint_text.get_width() // 2, SCREEN_HEIGHT // 2 + 60))
 
     def draw_game(self):
         # Применение тряски экрана (используется ScreenShake)
@@ -1473,6 +1694,9 @@ class Game:
         self.hotline_cutscene = HotlineCutscene()
         self.state = GameState.CUTSCENE
         self.player = Player()
+        # Восстанавливаем деньги из сохранения
+        save_data = SaveSystem.load_game()
+        self.player.money = save_data["money"]
         # Размещаем игрока в центре текущей локации
         current_loc = self.city.get_current_location()
         self.player.x = current_loc.world_x
@@ -1494,6 +1718,8 @@ class Game:
         # Сбрасываем флаг пропуска катсцены
         self.skip_cutscene_prompt = False
         self.skip_cutscene_timer = 0
+        # Применяем бафы от активных карточек
+        self._apply_card_buffs()
 
     def _scale_and_blit(self, source_surface, target_screen):
         """Масштабирует поверхность базового разрешения на реальный экран с сохранением пропорций"""
@@ -1599,6 +1825,10 @@ class Game:
                 self.draw_skills_menu()
             elif self.state == GameState.SETTINGS:
                 self.draw_settings()
+            elif self.state == GameState.CARD_SHOP:
+                self.draw_card_shop()
+            elif self.state == GameState.CARD_COLLECTION:
+                self.draw_card_collection()
 
             # Обработка кликов в меню паузы
             if self.state == GameState.PAUSE:
