@@ -19,4 +19,5 @@ class GameState(Enum):
     SETTINGS = 11
     CARD_SHOP = 12
     CARD_COLLECTION = 13
+    CASES = 14
 

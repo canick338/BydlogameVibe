@@ -20,7 +20,8 @@ def get_all_cards():
             health_bonus=20,
             special_ability="Магическая защита: снижение урона на 10%",
             price=5000,
-            image_path="assets/cards/femboi1ordinary.png"
+            image_path="assets/cards/femboi1ordinary.png",
+            rarity='common'
         ),
         Card(
             card_id="aries",
@@ -35,7 +36,8 @@ def get_all_cards():
             health_bonus=15,
             special_ability="Критический удар: шанс нанести двойной урон",
             price=6000,
-            image_path="assets/cards/femboi2ordinary.png"
+            image_path="assets/cards/femboi2ordinary.png",
+            rarity='rare'
         ),
         Card(
             card_id="lily_boy",
@@ -50,7 +52,8 @@ def get_all_cards():
             health_bonus=25,
             special_ability="Регенерация: медленное восстановление здоровья",
             price=4500,
-            image_path="assets/cards/femboi3ordinary.png"
+            image_path="assets/cards/femboi3ordinary.png",
+            rarity='common'
         ),
         Card(
             card_id="sakura",
@@ -65,7 +68,8 @@ def get_all_cards():
             health_bonus=10,
             special_ability="Уклонение: шанс избежать атаки",
             price=5500,
-            image_path="assets/cards/femboi1ordinary.png"  # Повторное использование изображения
+            image_path="assets/cards/femboi1ordinary.png",  # Повторное использование изображения
+            rarity='rare'
         ),
         Card(
             card_id="moon",
@@ -80,7 +84,8 @@ def get_all_cards():
             health_bonus=30,
             special_ability="Магический щит: периодически блокирует весь урон",
             price=8000,
-            image_path="assets/cards/femboi2ordinary.png"  # Повторное использование изображения
+            image_path="assets/cards/femboi2ordinary.png",  # Повторное использование изображения
+            rarity='epic'
         ),
         Card(
             card_id="neko",
@@ -95,7 +100,8 @@ def get_all_cards():
             health_bonus=15,
             special_ability="Кошачья ловкость: увеличенный шанс критического удара",
             price=4000,
-            image_path="assets/cards/femboi3ordinary.png"  # Повторное использование изображения
+            image_path="assets/cards/femboi3ordinary.png",  # Повторное использование изображения
+            rarity='common'
         )
     ]
 

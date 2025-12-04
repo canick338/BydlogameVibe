@@ -8,7 +8,7 @@ from game.config import BASE_WIDTH, BASE_HEIGHT, GOLD, WHITE, LIGHT_GREY, DARK_G
 class Card:
     def __init__(self, card_id, name, age, appearance, style, personality, bio, 
                  damage_bonus=0, speed_bonus=0, health_bonus=0, 
-                 special_ability=None, price=0, image_path=None):
+                 special_ability=None, price=0, image_path=None, rarity='common'):
         self.card_id = card_id
         self.name = name
         self.age = age
@@ -27,6 +27,9 @@ class Card:
         
         # Цена в магазине
         self.price = price
+        
+        # Редкость карточки
+        self.rarity = rarity  # "common", "rare", "epic", "legendary"
         
         # Изображение карточки
         self.image_path = image_path

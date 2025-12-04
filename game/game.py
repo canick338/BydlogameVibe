@@ -43,6 +43,7 @@ from game.managers.screen_shake import ScreenShake
 from game.managers.gameplay_manager import GameplayManager
 from game.knife import Knife
 from game.body_part import BodyPart
+from game.case import CaseSystem
 
 
 class Game:
@@ -96,6 +97,7 @@ class Game:
         self.active_cards = []  # Список активных ID карточек
         self.card_shop_selected = 0  # Выбранная карточка в магазине
         self.card_collection_selected = 0  # Выбранная карточка в коллекции
+        self.case_system = CaseSystem(self.all_cards)
         
         # Загружаем сохранение
         save_data = SaveSystem.load_game()
@@ -473,6 +475,14 @@ class Game:
                     elif self.state == GameState.CARD_COLLECTION:
                         self.state = GameState.MAIN_MENU
                         self._save_game()
+                    elif self.state == GameState.CASES:
+                        # Если показываем награду, закрываем её, иначе выходим в меню
+                        if self.case_system.showing_reward:
+                            self.case_system.showing_reward = False
+                            self.case_system.current_reward_card = None
+                        else:
+                            self.state = GameState.MAIN_MENU
+                            self._save_game()
                     elif self.state in [GameState.GAME_OVER, GameState.WIN]:
                         self.state = GameState.MAIN_MENU
                         self._save_game()
@@ -584,6 +594,28 @@ class Game:
                             self.shop_message = message
                             self.shop_message_timer = 120
 
+                elif self.state == GameState.CASES:
+                    if self.case_system.is_spinning:
+                        # Во время прокрутки - кнопка остановки
+                        if event.key == pygame.K_RETURN or event.key == pygame.K_SPACE:
+                            self.case_system.request_stop()
+                    elif not self.case_system.is_opening and not self.case_system.showing_reward:
+                        if event.key == pygame.K_UP or event.key == pygame.K_w:
+                            self.case_system.selected_case_index = max(0, self.case_system.selected_case_index - 1)
+                        elif event.key == pygame.K_DOWN or event.key == pygame.K_s:
+                            self.case_system.selected_case_index = min(len(self.case_system.cases) - 1, self.case_system.selected_case_index + 1)
+                        elif event.key == pygame.K_RETURN or event.key == pygame.K_SPACE:
+                            # Покупка и открытие кейса
+                            case_index = self.case_system.selected_case_index
+                            success, message = self.case_system.buy_case(self.player, case_index)
+                            if success:
+                                reward_card = self.case_system.start_opening(case_index)
+                                if reward_card:
+                                    # Добавляем карточку в коллекцию
+                                    if reward_card.card_id not in self.owned_cards:
+                                        self.owned_cards.append(reward_card.card_id)
+                                        self._save_game()
+
                 elif event.key == pygame.K_SPACE:
                     # Обработка пробела в катсценах - продолжение диалогов
                     if self.state == GameState.CUTSCENE:
@@ -679,7 +711,7 @@ class Game:
                         button_height = 50
                         center_x = SCREEN_WIDTH // 2
 
-                        for i in range(6):
+                        for i in range(7):
                             btn_x = center_x - 150
                             btn_y = button_y + i * 70
                             if (btn_x <= mouse_pos[0] <= btn_x + 300 and
@@ -690,11 +722,13 @@ class Game:
                                     self.state = GameState.CARD_SHOP
                                 elif i == 2:  # КОЛЛЕКЦИЯ
                                     self.state = GameState.CARD_COLLECTION
-                                elif i == 3:  # УПРАВЛЕНИЕ
+                                elif i == 3:  # КЕЙСЫ
+                                    self.state = GameState.CASES
+                                elif i == 4:  # УПРАВЛЕНИЕ
                                     self.state = GameState.CONTROLS
-                                elif i == 4:  # НАСТРОЙКИ
+                                elif i == 5:  # НАСТРОЙКИ
                                     self.state = GameState.SETTINGS
-                                elif i == 5:  # ВЫХОД
+                                elif i == 6:  # ВЫХОД
                                     self._save_game()
                                     return False
                     elif self.state == GameState.SETTINGS:
@@ -1021,6 +1055,9 @@ class Game:
         if self.shop_message_timer > 0:
             self.shop_message_timer -= 1
 
+        # Обновление системы кейсов
+        self.case_system.update()
+
         # Обновление таймера пропуска катсцены
         if self.skip_cutscene_timer > 0:
             self.skip_cutscene_timer -= 1
@@ -1288,6 +1325,7 @@ class Game:
             ("НАЧАТЬ ИГРУ", lambda: self.start_game()),
             ("МАГАЗИН КАРТОЧЕК", lambda: setattr(self, 'state', GameState.CARD_SHOP)),
             ("КОЛЛЕКЦИЯ", lambda: setattr(self, 'state', GameState.CARD_COLLECTION)),
+            ("КЕЙСЫ", lambda: setattr(self, 'state', GameState.CASES)),
             ("УПРАВЛЕНИЕ", lambda: setattr(self, 'state', GameState.CONTROLS)),
             ("НАСТРОЙКИ", lambda: setattr(self, 'state', GameState.SETTINGS)),
             ("ВЫХОД", sys.exit)
@@ -1789,6 +1827,8 @@ class Game:
                 self.draw_card_shop()
             elif self.state == GameState.CARD_COLLECTION:
                 self.draw_card_collection()
+            elif self.state == GameState.CASES:
+                self.case_system.draw(self.screen, self.player)
 
             # Обработка кликов в меню паузы
             if self.state == GameState.PAUSE:
