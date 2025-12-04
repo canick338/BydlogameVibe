@@ -11,7 +11,7 @@ import math
 
 # Флаг, позволяющий включать/отключать возможность пропуска катсцен
 # Переключатель: True - можно пропускать катсцены, False - нельзя
-ENABLE_CUTSCENE_SKIP = False
+ENABLE_CUTSCENE_SKIP = True
 
 # Исправление пути для импортов при прямом запуске
 if __name__ == "__main__":
@@ -380,11 +380,11 @@ class Game:
                             self.player.skill_points -= 1
 
                 elif event.key == pygame.K_SPACE:
-                    # Обработка пробела в катсценах
+                    # Обработка пробела в катсценах - продолжение диалогов
                     if self.state == GameState.CUTSCENE:
                         # Вступительная катсцена Hotline Miami: пролистывание диалога
-                        if self.hotline_cutscene and getattr(self.hotline_cutscene, "phase", 0) == 3 \
-                                and getattr(self.hotline_cutscene, "waiting_for_input", False):
+                        if self.hotline_cutscene and self.hotline_cutscene.phase == 3:
+                            # Пролистываем диалог (ПРОБЕЛ всегда работает в фазе диалога)
                             if self.hotline_cutscene.update(skip=True):
                                 # Катсцена полностью закончилась
                                 self.hotline_cutscene = None
@@ -394,6 +394,25 @@ class Game:
                             # Принудительное переключение на следующий текст / завершение катсцены
                             if self.cutscene.next():
                                 self._finish_current_cutscene()
+
+                elif event.key == pygame.K_RETURN:  # ENTER - пропуск катсцен
+                    # Пропуск катсцен (только если включен флаг)
+                    if self.state == GameState.CUTSCENE and ENABLE_CUTSCENE_SKIP:
+                        # Пропуск вступительной катсцены Hotline Miami
+                        if self.hotline_cutscene:
+                            # Если это первое нажатие, показываем подсказку
+                            if not self.skip_cutscene_prompt:
+                                self.skip_cutscene_prompt = True
+                                self.skip_cutscene_timer = 120  # 2 секунды для подтверждения
+                            else:
+                                # Подтвержденный пропуск - полностью пропускаем катсцену
+                                self.hotline_cutscene = None
+                                self.skip_cutscene_prompt = False
+                                self.start_mission_cutscene(0)
+                        # Пропуск обычной миссионной катсцены
+                        elif self.cutscene:
+                            # Пропускаем всю катсцену сразу
+                            self._finish_current_cutscene()
 
                 elif event.key == pygame.K_r and self.state == GameState.PLAYING:
                     # Перезарядка текущего оружия
@@ -1053,7 +1072,8 @@ class Game:
             "U - МЕНЮ НАВЫКОВ",
             "R - ПЕРЕЗАРЯДКА",
             "ESC - ПАУЗА / МЕНЮ",
-            "ПРОБЕЛ - ПРОПУСК ДИАЛОГОВ"
+            "ПРОБЕЛ - ПРОДОЛЖЕНИЕ ДИАЛОГОВ",
+            "ENTER - ПРОПУСК КАТСЦЕН"
         ]
 
         for i, control in enumerate(controls):
@@ -1348,6 +1368,26 @@ class Game:
                 if self.hotline_cutscene:
                     # Отрисовка вступительной катсцены
                     self.hotline_cutscene.draw(self.screen)
+                    
+                    # Подсказки о пропуске через ENTER (только если включен флаг)
+                    if ENABLE_CUTSCENE_SKIP:
+                        if self.skip_cutscene_prompt:
+                            # Фон подсказки
+                            prompt_surface = pygame.Surface((400, 80), pygame.SRCALPHA)
+                            prompt_surface.fill((0, 0, 0, 180))
+                            prompt_rect = prompt_surface.get_rect(center=(SCREEN_WIDTH // 2, SCREEN_HEIGHT - 100))
+                            self.screen.blit(prompt_surface, prompt_rect)
+                            
+                            # Текст подсказки
+                            prompt_text1 = dialog_font.render("Нажми ENTER еще раз чтобы пропустить", True, GOLD)
+                            prompt_text2 = small_font.render(f"Истекает через: {self.skip_cutscene_timer // 60 + 1} сек", True, WHITE)
+                            
+                            self.screen.blit(prompt_text1, (SCREEN_WIDTH // 2 - prompt_text1.get_width() // 2, SCREEN_HEIGHT - 120))
+                            self.screen.blit(prompt_text2, (SCREEN_WIDTH // 2 - prompt_text2.get_width() // 2, SCREEN_HEIGHT - 80))
+                        elif self.hotline_cutscene.phase < 3:
+                            # Стандартная подсказка о пропуске (только до начала диалогов)
+                            skip_text = small_font.render("Нажми ENTER для пропуска вступления", True, LIGHT_GREY)
+                            self.screen.blit(skip_text, (SCREEN_WIDTH // 2 - skip_text.get_width() // 2, SCREEN_HEIGHT - 50))
                 elif self.cutscene:
                     # Автоматическое пролистывание диалога по таймеру
                     if self.cutscene.update(self.clock.get_time()):

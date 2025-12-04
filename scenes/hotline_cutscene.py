@@ -120,8 +120,8 @@ class HotlineCutscene:
                     self.timer = 0
         
         elif self.phase == 3:  # Диалог с выбором
-            if skip and self.waiting_for_input:
-                # Переход к следующему диалогу
+            if skip:
+                # Переход к следующему диалогу (ПРОБЕЛ всегда работает в фазе диалога)
                 self.dialog_index += 1
                 if self.dialog_index >= len(self.dialogs):
                     return True  # Катсцена завершена
@@ -341,10 +341,10 @@ class HotlineCutscene:
                 text = dialog_font.render(line, True, WHITE)
                 screen.blit(text, (dialog_x + 20, dialog_y + 50 + i * 35))
         
-        # Подсказка для продолжения
-        if self.waiting_for_input and self.phase == 3:
+        # Подсказка для продолжения (только в фазе диалога)
+        if self.phase == 3:
             if pygame.time.get_ticks() % 1000 < 500:
-                hint = small_font.render("Нажми ПРОБЕЛ чтобы продолжить", True, GOLD)
+                hint = small_font.render("Нажми ПРОБЕЛ чтобы продолжить диалог", True, GOLD)
                 screen.blit(hint, (SCREEN_WIDTH // 2 - hint.get_width() // 2, SCREEN_HEIGHT - 50))
         
         # Индикатор музыки
