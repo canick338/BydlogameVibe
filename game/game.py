@@ -9,6 +9,10 @@ import os
 import random
 import math
 
+# Флаг, позволяющий включать/отключать возможность пропуска катсцен
+# Переключатель: True - можно пропускать катсцены, False - нельзя
+ENABLE_CUTSCENE_SKIP = False
+
 # Исправление пути для импортов при прямом запуске
 if __name__ == "__main__":
     print("ОШИБКА: Этот файл нельзя запускать напрямую!")
@@ -292,6 +296,28 @@ class Game:
                 if current_mission.update(bounty):
                     self.complete_mission()
 
+    def _finish_current_cutscene(self):
+        """Общая логика завершения текущей катсцены (миссионной)"""
+        if not self.cutscene:
+            return
+
+        if self.cutscene.mission_complete:
+            self.current_mission_index += 1
+            if self.current_mission_index < len(self.missions):
+                self.start_mission_cutscene(self.current_mission_index)
+            else:
+                self.state = GameState.WIN
+        else:
+            self.state = GameState.PLAYING
+            self.mission_start_time = pygame.time.get_ticks()
+            # Убеждаемся что музыка играет
+            if not pygame.mixer.music.get_busy():
+                try:
+                    pygame.mixer.music.load("music/musicingame.ogg")
+                    pygame.mixer.music.play(-1)
+                except:
+                    pass
+
     def handle_events(self):
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
@@ -354,37 +380,20 @@ class Game:
                             self.player.skill_points -= 1
 
                 elif event.key == pygame.K_SPACE:
+                    # Обработка пробела в катсценах
                     if self.state == GameState.CUTSCENE:
-                        # Пропуск катсцены Hotline Miami
-                        if self.hotline_cutscene:
-                            # Если это первое нажатие, показываем подсказку
-                            if not self.skip_cutscene_prompt:
-                                self.skip_cutscene_prompt = True
-                                self.skip_cutscene_timer = 120  # 2 секунды для подтверждения
-                            else:
-                                # Подтвержденный пропуск
+                        # Вступительная катсцена Hotline Miami: пролистывание диалога
+                        if self.hotline_cutscene and getattr(self.hotline_cutscene, "phase", 0) == 3 \
+                                and getattr(self.hotline_cutscene, "waiting_for_input", False):
+                            if self.hotline_cutscene.update(skip=True):
+                                # Катсцена полностью закончилась
                                 self.hotline_cutscene = None
-                                self.skip_cutscene_prompt = False
                                 self.start_mission_cutscene(0)
-                        # Пропуск обычной катсцены
+                        # Обычные миссионные катсцены (диалоги)
                         elif self.cutscene:
-                            if self.cutscene.update(9999):
-                                if self.cutscene.mission_complete:
-                                    self.current_mission_index += 1
-                                    if self.current_mission_index < len(self.missions):
-                                        self.start_mission_cutscene(self.current_mission_index)
-                                    else:
-                                        self.state = GameState.WIN
-                                else:
-                                    self.state = GameState.PLAYING
-                                    self.mission_start_time = pygame.time.get_ticks()
-                                    # Убеждаемся что музыка играет
-                                    if not pygame.mixer.music.get_busy():
-                                        try:
-                                            pygame.mixer.music.load("music/musicingame.ogg")
-                                            pygame.mixer.music.play(-1)
-                                        except:
-                                            pass
+                            # Принудительное переключение на следующий текст / завершение катсцены
+                            if self.cutscene.next():
+                                self._finish_current_cutscene()
 
                 elif event.key == pygame.K_r and self.state == GameState.PLAYING:
                     # Перезарядка текущего оружия
@@ -1337,28 +1346,12 @@ class Game:
                 self.draw_game()
             elif self.state == GameState.CUTSCENE:
                 if self.hotline_cutscene:
-                    # Отображение подсказки о пропуске катсцены
+                    # Отрисовка вступительной катсцены
                     self.hotline_cutscene.draw(self.screen)
-
-                    # Отображение подсказки о пропуске катсцены
-                    if self.skip_cutscene_prompt:
-                        # Фон подсказки
-                        prompt_surface = pygame.Surface((400, 80), pygame.SRCALPHA)
-                        prompt_surface.fill((0, 0, 0, 180))
-                        prompt_rect = prompt_surface.get_rect(center=(SCREEN_WIDTH // 2, SCREEN_HEIGHT - 100))
-                        self.screen.blit(prompt_surface, prompt_rect)
-
-                        # Текст подсказки
-                        prompt_text1 = dialog_font.render("Нажми ПРОБЕЛ еще раз чтобы пропустить", True, GOLD)
-                        prompt_text2 = small_font.render(f"Истекает через: {self.skip_cutscene_timer // 60 + 1} сек", True, WHITE)
-
-                        self.screen.blit(prompt_text1, (SCREEN_WIDTH // 2 - prompt_text1.get_width() // 2, SCREEN_HEIGHT - 120))
-                        self.screen.blit(prompt_text2, (SCREEN_WIDTH // 2 - prompt_text2.get_width() // 2, SCREEN_HEIGHT - 80))
-                    else:
-                        # Стандартная подсказка о пропуске
-                        skip_text = small_font.render("Нажми ПРОБЕЛ для пропуска вступления", True, LIGHT_GREY)
-                        self.screen.blit(skip_text, (SCREEN_WIDTH // 2 - skip_text.get_width() // 2, SCREEN_HEIGHT - 50))
                 elif self.cutscene:
+                    # Автоматическое пролистывание диалога по таймеру
+                    if self.cutscene.update(self.clock.get_time()):
+                        self._finish_current_cutscene()
                     self.cutscene.draw(self.screen)
             elif self.state == GameState.PAUSE:
                 self.draw_pause()

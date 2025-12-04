@@ -21,6 +21,15 @@ class Cutscene:
             return self.current_text >= len(self.texts)
         return False
 
+    def next(self):
+        """
+        Принудительно переключить катсцену на следующий текст.
+        Возвращает True, если катсцена полностью закончилась.
+        """
+        self.timer = 0
+        self.current_text += 1
+        return self.current_text >= len(self.texts)
+
     def draw(self, screen):
         screen.fill(self.background_color)
 
