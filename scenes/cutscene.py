@@ -2,7 +2,7 @@
 Класс обычной катсцены
 """
 import pygame
-from game.config import SCREEN_WIDTH, SCREEN_HEIGHT, DARK_GREY, WHITE, LIGHT_GREY, dialog_font, small_font
+from game.config import SCREEN_WIDTH, SCREEN_HEIGHT, BASE_WIDTH, BASE_HEIGHT, DARK_GREY, WHITE, LIGHT_GREY, dialog_font, small_font
 
 
 class Cutscene:
@@ -37,12 +37,12 @@ class Cutscene:
             lines = self.texts[self.current_text].split('\n')
             for i, line in enumerate(lines):
                 text = dialog_font.render(line, True, WHITE)
-                screen.blit(text, (SCREEN_WIDTH // 2 - text.get_width() // 2,
-                                   SCREEN_HEIGHT // 2 - len(lines) * 20 + i * 40))
+                screen.blit(text, (BASE_WIDTH // 2 - text.get_width() // 2,
+                                   BASE_HEIGHT // 2 - len(lines) * 20 + i * 40))
 
         # Индикатор продолжения
         if pygame.time.get_ticks() % 1000 < 500:
             hint_text = "Нажми ПРОБЕЛ чтобы продолжить" if not self.mission_complete else "Нажми ПРОБЕЛ для завершения миссии"
             hint = small_font.render(hint_text, True, LIGHT_GREY)
-            screen.blit(hint, (SCREEN_WIDTH // 2 - hint.get_width() // 2, SCREEN_HEIGHT - 100))
+            screen.blit(hint, (BASE_WIDTH // 2 - hint.get_width() // 2, BASE_HEIGHT - 100))
 

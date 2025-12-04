@@ -16,4 +16,5 @@ class GameState(Enum):
     SHOP = 8
     LOCATION_SELECT = 9
     SKILLS = 10
+    SETTINGS = 11
 

@@ -4,7 +4,7 @@
 import pygame
 import math
 import random
-from game.config import SCREEN_WIDTH, SCREEN_HEIGHT, GOLD, WHITE, LIGHT_GREY, RED, menu_font, dialog_font, small_font
+from game.config import SCREEN_WIDTH, SCREEN_HEIGHT, BASE_WIDTH, BASE_HEIGHT, GOLD, WHITE, LIGHT_GREY, RED, menu_font, dialog_font, small_font
 from game.sprites.enemy_sprite_manager import EnemySpriteManager
 
 
@@ -14,15 +14,16 @@ class HotlineCutscene:
         self.music = None
         self.load_assets()
         self.phase = 0  # 0 - машина подъезжает, 1 - выход персонажа, 2 - менты подходят, 3 - диалог
+        # Используем базовое разрешение для позиций (независимо от реального разрешения)
         self.car_x = -300
-        self.car_y = SCREEN_HEIGHT // 2 - 50
-        self.car_speed = 3
-        self.player_exit_x = SCREEN_WIDTH // 2
-        self.player_exit_y = SCREEN_HEIGHT // 2 + 50
+        self.car_y = BASE_HEIGHT // 2 - 50
+        self.car_speed = 3  # Скорость в пикселях за кадр (независимо от разрешения)
+        self.player_exit_x = BASE_WIDTH // 2
+        self.player_exit_y = BASE_HEIGHT // 2 + 50
         self.player_exit_progress = 0
-        self.ment_x = SCREEN_WIDTH + 100
-        self.ment_y = SCREEN_HEIGHT // 2
-        self.ment_speed = 2
+        self.ment_x = BASE_WIDTH + 100
+        self.ment_y = BASE_HEIGHT // 2
+        self.ment_speed = 2  # Скорость в пикселях за кадр (независимо от разрешения)
         self.dialog_active = False
         self.dialog_text = ""
         self.timer = 0
@@ -83,8 +84,8 @@ class HotlineCutscene:
         if self.phase == 0:  # Машина подъезжает
             if not skip:
                 self.car_x += self.car_speed * 0.5  # Замедлили
-            if self.car_x >= SCREEN_WIDTH // 2 - 100:
-                self.car_x = SCREEN_WIDTH // 2 - 100
+            if self.car_x >= BASE_WIDTH // 2 - 100:
+                self.car_x = BASE_WIDTH // 2 - 100
                 if self.timer > 120:  # Пауза 2 секунды перед выходом
                     self.phase = 1
                     self.timer = 0
@@ -109,8 +110,8 @@ class HotlineCutscene:
         elif self.phase == 2:  # Менты подходят
             if not skip:
                 self.ment_x -= self.ment_speed * 0.5  # Замедлили
-            if self.ment_x <= SCREEN_WIDTH // 2 + 150:
-                self.ment_x = SCREEN_WIDTH // 2 + 150
+            if self.ment_x <= BASE_WIDTH // 2 + 150:
+                self.ment_x = BASE_WIDTH // 2 + 150
                 if self.timer > 120:  # Пауза перед диалогом
                     self.phase = 3
                     self.dialog_active = True
@@ -132,6 +133,7 @@ class HotlineCutscene:
         return False
     
     def draw(self, screen):
+        # Рисуем в базовом разрешении для правильного масштабирования
         # Фон улицы ночью
         screen.fill((20, 20, 30))
         
@@ -139,35 +141,35 @@ class HotlineCutscene:
         for i in range(5):
             x = i * 200
             height = 200 + (i % 3) * 50
-            pygame.draw.rect(screen, (40, 40, 50), (x, SCREEN_HEIGHT - height, 150, height))
+            pygame.draw.rect(screen, (40, 40, 50), (x, BASE_HEIGHT - height, 150, height))
             # Окна
-            for wy in range(SCREEN_HEIGHT - height + 20, SCREEN_HEIGHT - 40, 30):
+            for wy in range(BASE_HEIGHT - height + 20, BASE_HEIGHT - 40, 30):
                 for wx in range(x + 20, x + 130, 40):
                     lit = random.random() > 0.5
                     color = (255, 255, 150) if lit else (60, 60, 80)
                     pygame.draw.rect(screen, color, (wx, wy, 25, 20))
         
         # Дорога
-        pygame.draw.rect(screen, (30, 30, 40), (0, SCREEN_HEIGHT - 100, SCREEN_WIDTH, 100))
+        pygame.draw.rect(screen, (30, 30, 40), (0, BASE_HEIGHT - 100, BASE_WIDTH, 100))
         # Разметка (анимированная)
         offset = (self.timer * 2) % 80
-        for i in range(-80, SCREEN_WIDTH + 80, 80):
-            pygame.draw.rect(screen, (200, 200, 100), (i + offset, SCREEN_HEIGHT - 50, 40, 4))
+        for i in range(-80, BASE_WIDTH + 80, 80):
+            pygame.draw.rect(screen, (200, 200, 100), (i + offset, BASE_HEIGHT - 50, 40, 4))
         
         # Фонари на столбах
-        for i in range(0, SCREEN_WIDTH, 250):
+        for i in range(0, BASE_WIDTH, 250):
             # Столб
-            pygame.draw.rect(screen, (60, 60, 60), (i, SCREEN_HEIGHT - 200, 8, 100))
+            pygame.draw.rect(screen, (60, 60, 60), (i, BASE_HEIGHT - 200, 8, 100))
             # Фонарь
             light_intensity = 0.7 + 0.3 * math.sin(self.timer * 0.1)
             light_color = tuple(int(255 * light_intensity) for _ in range(3))
-            pygame.draw.circle(screen, light_color, (i + 4, SCREEN_HEIGHT - 200), 15)
+            pygame.draw.circle(screen, light_color, (i + 4, BASE_HEIGHT - 200), 15)
             # Свет от фонаря
             light_surface = pygame.Surface((100, 100), pygame.SRCALPHA)
             for radius in range(50, 0, -5):
                 alpha = int(30 * (1 - radius / 50))
                 pygame.draw.circle(light_surface, (*light_color[:3], alpha), (50, 50), radius)
-            screen.blit(light_surface, (i - 50, SCREEN_HEIGHT - 250))
+            screen.blit(light_surface, (i - 50, BASE_HEIGHT - 250))
         
         # Машина
         if self.car_image:
@@ -312,8 +314,8 @@ class HotlineCutscene:
         if self.dialog_active and self.phase == 3:
             dialog_width = 800
             dialog_height = 150
-            dialog_x = SCREEN_WIDTH // 2 - dialog_width // 2
-            dialog_y = SCREEN_HEIGHT - 200
+            dialog_x = BASE_WIDTH // 2 - dialog_width // 2
+            dialog_y = BASE_HEIGHT - 200
             
             # Фон диалога с эффектом свечения
             glow_surface = pygame.Surface((dialog_width + 20, dialog_height + 20), pygame.SRCALPHA)
@@ -345,10 +347,10 @@ class HotlineCutscene:
         if self.phase == 3:
             if pygame.time.get_ticks() % 1000 < 500:
                 hint = small_font.render("Нажми ПРОБЕЛ чтобы продолжить диалог", True, GOLD)
-                screen.blit(hint, (SCREEN_WIDTH // 2 - hint.get_width() // 2, SCREEN_HEIGHT - 50))
+                screen.blit(hint, (BASE_WIDTH // 2 - hint.get_width() // 2, BASE_HEIGHT - 50))
         
         # Индикатор музыки
         if not self.music_loaded:
             music_hint = small_font.render("Музыка не найдена (music/musicingame.ogg)", True, LIGHT_GREY)
-            screen.blit(music_hint, (10, SCREEN_HEIGHT - 30))
+            screen.blit(music_hint, (10, BASE_HEIGHT - 30))
 

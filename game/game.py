@@ -43,9 +43,16 @@ from game.body_part import BodyPart
 
 class Game:
     def __init__(self):
-        self.screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT))
+        # Создаем полноэкранный режим с адаптивным разрешением
+        if FULLSCREEN:
+            self.screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT), pygame.FULLSCREEN)
+        else:
+            self.screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT))
         pygame.display.set_caption("БРАТВА: УЛИЦЫ СТОЛИЦЫ - ЭПИЧЕСКИЙ РЕМАСТЕР!")
         self.clock = pygame.time.Clock()
+        
+        # Поверхность для рендеринга в базовом разрешении (для масштабирования)
+        self.render_surface = pygame.Surface((BASE_WIDTH, BASE_HEIGHT))
         self.state = GameState.MAIN_MENU
         self.player = Player()
         self.city = City()
@@ -71,6 +78,13 @@ class Game:
         # Флаг пропуска катсцены
         self.skip_cutscene_prompt = False
         self.skip_cutscene_timer = 0
+        
+        # Настройки
+        self.settings_fullscreen = FULLSCREEN
+        self.settings_music_volume = 0.7
+        self.settings_selected_option = 0  # Выбранная опция в меню настроек
+        # Применяем громкость музыки
+        pygame.mixer.music.set_volume(self.settings_music_volume)
 
         # Инициализация миссий и достижений перед созданием менеджеров
         self.init_missions()
@@ -319,12 +333,31 @@ class Game:
                     pass
 
     def handle_events(self):
+        global FULLSCREEN, SCREEN_WIDTH, SCREEN_HEIGHT, SCALE_X, SCALE_Y, SCALE, ENABLE_CUTSCENE_SKIP
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 return False
 
             if event.type == pygame.KEYDOWN:
-                if event.key == pygame.K_ESCAPE:
+                # Переключение полноэкранного режима (F11)
+                if event.key == pygame.K_F11:
+                    FULLSCREEN = not FULLSCREEN
+                    if FULLSCREEN:
+                        screen_info = pygame.display.Info()
+                        SCREEN_WIDTH = screen_info.current_w
+                        SCREEN_HEIGHT = screen_info.current_h
+                    else:
+                        SCREEN_WIDTH, SCREEN_HEIGHT = BASE_WIDTH, BASE_HEIGHT
+                    SCALE_X = SCREEN_WIDTH / BASE_WIDTH
+                    SCALE_Y = SCREEN_HEIGHT / BASE_HEIGHT
+                    SCALE = min(SCALE_X, SCALE_Y)
+                    if FULLSCREEN:
+                        self.screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT), pygame.FULLSCREEN)
+                    else:
+                        self.screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT))
+                    self.render_surface = pygame.Surface((BASE_WIDTH, BASE_HEIGHT))
+                
+                elif event.key == pygame.K_ESCAPE:
                     if self.state == GameState.PLAYING:
                         self.state = GameState.PAUSE
                     elif self.state == GameState.PAUSE:
@@ -335,8 +368,45 @@ class Game:
                         self.state = GameState.PLAYING
                     elif self.state == GameState.SKILLS:
                         self.state = GameState.PLAYING
+                    elif self.state == GameState.SETTINGS:
+                        self.state = GameState.MAIN_MENU
                     elif self.state in [GameState.GAME_OVER, GameState.WIN]:
                         self.state = GameState.MAIN_MENU
+
+                elif self.state == GameState.SETTINGS:
+                    if event.key == pygame.K_UP or event.key == pygame.K_w:
+                        self.settings_selected_option = max(0, self.settings_selected_option - 1)
+                    elif event.key == pygame.K_DOWN or event.key == pygame.K_s:
+                        self.settings_selected_option = min(2, self.settings_selected_option + 1)
+                    elif event.key == pygame.K_RETURN or event.key == pygame.K_SPACE:
+                        # Изменение выбранной опции
+                        if self.settings_selected_option == 0:  # Полноэкранный режим
+                            self.settings_fullscreen = not self.settings_fullscreen
+                            FULLSCREEN = self.settings_fullscreen
+                            if FULLSCREEN:
+                                screen_info = pygame.display.Info()
+                                SCREEN_WIDTH = screen_info.current_w
+                                SCREEN_HEIGHT = screen_info.current_h
+                            else:
+                                SCREEN_WIDTH, SCREEN_HEIGHT = BASE_WIDTH, BASE_HEIGHT
+                            SCALE_X = SCREEN_WIDTH / BASE_WIDTH
+                            SCALE_Y = SCREEN_HEIGHT / BASE_HEIGHT
+                            SCALE = min(SCALE_X, SCALE_Y)
+                            if FULLSCREEN:
+                                self.screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT), pygame.FULLSCREEN)
+                            else:
+                                self.screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT))
+                            self.render_surface = pygame.Surface((BASE_WIDTH, BASE_HEIGHT))
+                        elif self.settings_selected_option == 1:  # Пропуск катсцен
+                            ENABLE_CUTSCENE_SKIP = not ENABLE_CUTSCENE_SKIP
+                    elif event.key == pygame.K_LEFT:
+                        if self.settings_selected_option == 2:  # Громкость музыки
+                            self.settings_music_volume = max(0.0, self.settings_music_volume - 0.1)
+                            pygame.mixer.music.set_volume(self.settings_music_volume)
+                    elif event.key == pygame.K_RIGHT:
+                        if self.settings_selected_option == 2:  # Громкость музыки
+                            self.settings_music_volume = min(1.0, self.settings_music_volume + 0.1)
+                            pygame.mixer.music.set_volume(self.settings_music_volume)
 
                 elif self.state == GameState.SHOP:
                     if event.key == pygame.K_UP or event.key == pygame.K_w:
@@ -474,7 +544,7 @@ class Game:
                         button_height = 50
                         center_x = SCREEN_WIDTH // 2
 
-                        for i in range(3):
+                        for i in range(4):
                             btn_x = center_x - button_width // 2
                             btn_y = button_y + i * 80
                             if (btn_x <= mouse_pos[0] <= btn_x + button_width and
@@ -483,8 +553,38 @@ class Game:
                                     self.start_game()
                                 elif i == 1:  # УПРАВЛЕНИЕ
                                     self.state = GameState.CONTROLS
-                                elif i == 2:  # ВЫХОД
+                                elif i == 2:  # НАСТРОЙКИ
+                                    self.state = GameState.SETTINGS
+                                elif i == 3:  # ВЫХОД
                                     return False
+                    elif self.state == GameState.SETTINGS:
+                        # Обработка кликов по настройкам
+                        mouse_pos = pygame.mouse.get_pos()
+                        settings_y = 250
+                        for i in range(3):
+                            if (SCREEN_WIDTH // 2 - 200 <= mouse_pos[0] <= SCREEN_WIDTH // 2 + 200 and
+                                settings_y + i * 70 <= mouse_pos[1] <= settings_y + i * 70 + 50):
+                                self.settings_selected_option = i
+                                # Изменяем значение при клике
+                                if i == 0:  # Полноэкранный режим
+                                    self.settings_fullscreen = not self.settings_fullscreen
+                                    FULLSCREEN = self.settings_fullscreen
+                                    if FULLSCREEN:
+                                        screen_info = pygame.display.Info()
+                                        SCREEN_WIDTH = screen_info.current_w
+                                        SCREEN_HEIGHT = screen_info.current_h
+                                    else:
+                                        SCREEN_WIDTH, SCREEN_HEIGHT = BASE_WIDTH, BASE_HEIGHT
+                                    SCALE_X = SCREEN_WIDTH / BASE_WIDTH
+                                    SCALE_Y = SCREEN_HEIGHT / BASE_HEIGHT
+                                    SCALE = min(SCALE_X, SCALE_Y)
+                                    if FULLSCREEN:
+                                        self.screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT), pygame.FULLSCREEN)
+                                    else:
+                                        self.screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT))
+                                    self.render_surface = pygame.Surface((BASE_WIDTH, BASE_HEIGHT))
+                                elif i == 1:  # Пропуск катсцен
+                                    ENABLE_CUTSCENE_SKIP = not ENABLE_CUTSCENE_SKIP
 
             elif event.type == pygame.MOUSEBUTTONUP:
                 if event.button == 1 and self.state == GameState.PLAYING:
@@ -1043,8 +1143,9 @@ class Game:
         # Кнопки
         button_y = 350
         buttons = [
-            ("НАЧАТЬ ИГРУ", self.start_game),
-            ("УПРАВЛЕНИЕ", self.show_controls),
+            ("НАЧАТЬ ИГРУ", lambda: self.start_game()),
+            ("УПРАВЛЕНИЕ", lambda: setattr(self, 'state', GameState.CONTROLS)),
+            ("НАСТРОЙКИ", lambda: setattr(self, 'state', GameState.SETTINGS)),
             ("ВЫХОД", sys.exit)
         ]
 
@@ -1073,7 +1174,8 @@ class Game:
             "R - ПЕРЕЗАРЯДКА",
             "ESC - ПАУЗА / МЕНЮ",
             "ПРОБЕЛ - ПРОДОЛЖЕНИЕ ДИАЛОГОВ",
-            "ENTER - ПРОПУСК КАТСЦЕН"
+            "ENTER - ПРОПУСК КАТСЦЕН",
+            "F11 - ПЕРЕКЛЮЧЕНИЕ ПОЛНОЭКРАННОГО РЕЖИМА"
         ]
 
         for i, control in enumerate(controls):
@@ -1082,6 +1184,56 @@ class Game:
 
         back_text = small_font.render("Нажми ESC для возврата", True, LIGHT_GREY)
         self.screen.blit(back_text, (SCREEN_WIDTH // 2 - back_text.get_width() // 2, SCREEN_HEIGHT - 100))
+
+    def draw_settings(self):
+        self.screen.fill(DARK_GREY)
+        
+        title = title_font.render("НАСТРОЙКИ", True, GOLD)
+        self.screen.blit(title, (SCREEN_WIDTH // 2 - title.get_width() // 2, 100))
+        
+        # Опции настроек
+        settings_y = 250
+        settings = [
+            ("ПОЛНОЭКРАННЫЙ РЕЖИМ", self.settings_fullscreen),
+            ("ПРОПУСК КАТСЦЕН", ENABLE_CUTSCENE_SKIP),
+            ("ГРОМКОСТЬ МУЗЫКИ", f"{int(self.settings_music_volume * 100)}%")
+        ]
+        
+        mouse_pos = pygame.mouse.get_pos()
+        for i, (name, value) in enumerate(settings):
+            # Подсветка выбранной опции
+            is_selected = i == self.settings_selected_option
+            is_hovered = (SCREEN_WIDTH // 2 - 200 <= mouse_pos[0] <= SCREEN_WIDTH // 2 + 200 and
+                         settings_y + i * 70 <= mouse_pos[1] <= settings_y + i * 70 + 50)
+            
+            bg_color = GOLD if (is_selected or is_hovered) else DARK_GREY
+            text_color = BLACK if (is_selected or is_hovered) else WHITE
+            
+            # Фон опции
+            pygame.draw.rect(self.screen, bg_color, (SCREEN_WIDTH // 2 - 200, settings_y + i * 70, 400, 50))
+            pygame.draw.rect(self.screen, WHITE, (SCREEN_WIDTH // 2 - 200, settings_y + i * 70, 400, 50), 2)
+            
+            # Название опции
+            name_text = menu_font.render(name, True, text_color)
+            self.screen.blit(name_text, (SCREEN_WIDTH // 2 - 180, settings_y + i * 70 + 10))
+            
+            # Значение опции
+            if isinstance(value, bool):
+                value_text = "ВКЛ" if value else "ВЫКЛ"
+                value_color = GREEN if value else RED
+            else:
+                value_text = str(value)
+                value_color = text_color
+            
+            value_render = dialog_font.render(value_text, True, value_color)
+            self.screen.blit(value_render, (SCREEN_WIDTH // 2 + 150, settings_y + i * 70 + 15))
+        
+        # Подсказки
+        hint1 = small_font.render("СТРЕЛКИ ВВЕРХ/ВНИЗ - выбор опции | ENTER/ПРОБЕЛ - изменить | ESC - назад", True, LIGHT_GREY)
+        self.screen.blit(hint1, (SCREEN_WIDTH // 2 - hint1.get_width() // 2, SCREEN_HEIGHT - 100))
+        
+        hint2 = small_font.render("Для изменения громкости используйте ← →", True, LIGHT_GREY)
+        self.screen.blit(hint2, (SCREEN_WIDTH // 2 - hint2.get_width() // 2, SCREEN_HEIGHT - 70))
 
     def draw_game(self):
         # Применение тряски экрана (используется ScreenShake)
@@ -1343,6 +1495,32 @@ class Game:
         self.skip_cutscene_prompt = False
         self.skip_cutscene_timer = 0
 
+    def _scale_and_blit(self, source_surface, target_screen):
+        """Масштабирует поверхность базового разрешения на реальный экран с сохранением пропорций"""
+        if SCREEN_WIDTH == BASE_WIDTH and SCREEN_HEIGHT == BASE_HEIGHT:
+            # Если разрешения совпадают, просто копируем
+            target_screen.blit(source_surface, (0, 0))
+        else:
+            # Вычисляем масштаб с сохранением пропорций
+            scale_w = SCREEN_WIDTH / BASE_WIDTH
+            scale_h = SCREEN_HEIGHT / BASE_HEIGHT
+            scale = min(scale_w, scale_h)  # Используем минимальный для сохранения пропорций
+            
+            # Новые размеры с сохранением пропорций
+            new_width = int(BASE_WIDTH * scale)
+            new_height = int(BASE_HEIGHT * scale)
+            
+            # Масштабируем с использованием smoothscale для лучшего качества
+            scaled = pygame.transform.smoothscale(source_surface, (new_width, new_height))
+            
+            # Центрируем на экране
+            x_offset = (SCREEN_WIDTH - new_width) // 2
+            y_offset = (SCREEN_HEIGHT - new_height) // 2
+            
+            # Заливаем черным фон если есть пустое пространство
+            target_screen.fill(BLACK)
+            target_screen.blit(scaled, (x_offset, y_offset))
+
     def run(self):
         running = True
 
@@ -1352,12 +1530,19 @@ class Game:
             # Обновление игры только если не в паузе или меню
             if self.state == GameState.PLAYING:
                 self.update()
-            elif self.state == GameState.CUTSCENE and self.hotline_cutscene:
-                # Обновление катсцены Hotline Miami (только анимация, без пропуска)
-                if self.hotline_cutscene.update(skip=False):
-                    # Катсцена завершена автоматически
-                    self.hotline_cutscene = None
-                    self.start_mission_cutscene(0)
+            elif self.state == GameState.CUTSCENE:
+                # Обновление таймера пропуска катсцены
+                if self.skip_cutscene_timer > 0:
+                    self.skip_cutscene_timer -= 1
+                    if self.skip_cutscene_timer == 0:
+                        self.skip_cutscene_prompt = False
+                
+                if self.hotline_cutscene:
+                    # Обновление катсцены Hotline Miami (только анимация, без пропуска)
+                    if self.hotline_cutscene.update(skip=False):
+                        # Катсцена завершена автоматически
+                        self.hotline_cutscene = None
+                        self.start_mission_cutscene(0)
 
             # Отрисовка
             if self.state == GameState.MAIN_MENU:
@@ -1366,8 +1551,8 @@ class Game:
                 self.draw_game()
             elif self.state == GameState.CUTSCENE:
                 if self.hotline_cutscene:
-                    # Отрисовка вступительной катсцены
-                    self.hotline_cutscene.draw(self.screen)
+                    # Отрисовка вступительной катсцены на render_surface
+                    self.hotline_cutscene.draw(self.render_surface)
                     
                     # Подсказки о пропуске через ENTER (только если включен флаг)
                     if ENABLE_CUTSCENE_SKIP:
@@ -1375,24 +1560,29 @@ class Game:
                             # Фон подсказки
                             prompt_surface = pygame.Surface((400, 80), pygame.SRCALPHA)
                             prompt_surface.fill((0, 0, 0, 180))
-                            prompt_rect = prompt_surface.get_rect(center=(SCREEN_WIDTH // 2, SCREEN_HEIGHT - 100))
-                            self.screen.blit(prompt_surface, prompt_rect)
+                            prompt_rect = prompt_surface.get_rect(center=(BASE_WIDTH // 2, BASE_HEIGHT - 100))
+                            self.render_surface.blit(prompt_surface, prompt_rect)
                             
                             # Текст подсказки
                             prompt_text1 = dialog_font.render("Нажми ENTER еще раз чтобы пропустить", True, GOLD)
                             prompt_text2 = small_font.render(f"Истекает через: {self.skip_cutscene_timer // 60 + 1} сек", True, WHITE)
                             
-                            self.screen.blit(prompt_text1, (SCREEN_WIDTH // 2 - prompt_text1.get_width() // 2, SCREEN_HEIGHT - 120))
-                            self.screen.blit(prompt_text2, (SCREEN_WIDTH // 2 - prompt_text2.get_width() // 2, SCREEN_HEIGHT - 80))
+                            self.render_surface.blit(prompt_text1, (BASE_WIDTH // 2 - prompt_text1.get_width() // 2, BASE_HEIGHT - 120))
+                            self.render_surface.blit(prompt_text2, (BASE_WIDTH // 2 - prompt_text2.get_width() // 2, BASE_HEIGHT - 80))
                         elif self.hotline_cutscene.phase < 3:
                             # Стандартная подсказка о пропуске (только до начала диалогов)
                             skip_text = small_font.render("Нажми ENTER для пропуска вступления", True, LIGHT_GREY)
-                            self.screen.blit(skip_text, (SCREEN_WIDTH // 2 - skip_text.get_width() // 2, SCREEN_HEIGHT - 50))
+                            self.render_surface.blit(skip_text, (BASE_WIDTH // 2 - skip_text.get_width() // 2, BASE_HEIGHT - 50))
+                    
+                    # Масштабируем и выводим на экран
+                    self._scale_and_blit(self.render_surface, self.screen)
                 elif self.cutscene:
                     # Автоматическое пролистывание диалога по таймеру
                     if self.cutscene.update(self.clock.get_time()):
                         self._finish_current_cutscene()
-                    self.cutscene.draw(self.screen)
+                    self.cutscene.draw(self.render_surface)
+                    # Масштабируем и выводим на экран
+                    self._scale_and_blit(self.render_surface, self.screen)
             elif self.state == GameState.PAUSE:
                 self.draw_pause()
             elif self.state == GameState.GAME_OVER:
@@ -1407,6 +1597,8 @@ class Game:
             elif self.state == GameState.SKILLS:
                 self.draw_game()
                 self.draw_skills_menu()
+            elif self.state == GameState.SETTINGS:
+                self.draw_settings()
 
             # Обработка кликов в меню паузы
             if self.state == GameState.PAUSE:
